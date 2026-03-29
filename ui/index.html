@@ -35,6 +35,9 @@
         <li class="nav-item" data-page="campaigns">
           <span class="nav-icon">[P]</span> Campaigns
         </li>
+        <li class="nav-item" data-page="admin">
+          <span class="nav-icon">[*]</span> Admin
+        </li>
       </ul>
       <div class="sidebar-footer">
         <div class="server-status" id="serverStatus">
@@ -230,6 +233,70 @@
         <div class="card">
           <div class="card-body">
             <div class="empty-state">Campaign management coming soon. Group related Tests into named exercises.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Admin page -->
+      <div id="page-admin" class="page">
+        <div class="page-header">
+          <h1>Admin</h1>
+          <div class="header-actions">
+            <button class="btn btn-secondary" onclick="loadAdminStatus()">Refresh</button>
+          </div>
+        </div>
+
+        <!-- Atomic Red Team status -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Atomic Red Team</h2>
+          </div>
+          <div class="card-body">
+            <div class="stats-row" style="margin-bottom:1.2rem">
+              <div class="stat-card">
+                <div class="stat-value" id="admin-atomic-db">-</div>
+                <div class="stat-label">Scripts in DB</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="admin-custom-db">-</div>
+                <div class="stat-label">Custom Scripts</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="admin-yaml-disk">-</div>
+                <div class="stat-label">YAML on Disk</div>
+              </div>
+            </div>
+
+            <div class="admin-section">
+              <h3>Last Import Run</h3>
+              <table class="data-table" style="max-width:520px">
+                <thead><tr><th>Metric</th><th>Count</th></tr></thead>
+                <tbody id="admin-last-run-body">
+                  <tr><td colspan="2" class="empty-row">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="admin-section" style="margin-top:1.5rem">
+              <h3>Force Reload</h3>
+              <p class="admin-hint">Wipes all Atomic Red Team scripts from the database and re-imports from disk.<br>
+              Run this after <code>git submodule update --remote</code> to pick up new Atomic Red Team releases.</p>
+              <button class="btn btn-danger" id="reloadBtn" onclick="reloadAtomics()">Reload Atomic Scripts</button>
+              <div id="admin-reload-log" class="admin-log hidden"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- API Key config -->
+        <div class="card" style="margin-top:1rem">
+          <div class="card-header"><h2>API Key</h2></div>
+          <div class="card-body">
+            <p class="admin-hint">API key used for admin requests. Saved in browser localStorage.</p>
+            <div style="display:flex;gap:.6rem;align-items:center">
+              <input type="password" id="apiKeyInput" class="search-input" style="max-width:340px" placeholder="Enter API key" />
+              <button class="btn btn-primary" onclick="saveApiKey()">Save</button>
+              <span id="apiKeySaved" class="admin-hint" style="display:none">[SAVED]</span>
+            </div>
           </div>
         </div>
       </div>

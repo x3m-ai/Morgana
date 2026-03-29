@@ -36,6 +36,7 @@ function navigateTo(page) {
     case "agents":    loadAgents(); break;
     case "scripts":   loadScripts(); break;
     case "tests":     loadTests(); break;
+    case "admin":     loadAdminStatus(); break;
   }
 }
 
@@ -275,6 +276,78 @@ function fmtDate(isoStr) {
 function setVal(id, val) {
   const el = document.getElementById(id);
   if (el) el.textContent = val;
+}
+
+// ─── Admin ───────────────────────────────────────────────────────────────────
+
+async function loadAdminStatus() {
+  try {
+    const data = await apiFetch("/api/v2/admin/atomics/status");
+    setVal("admin-atomic-db", data.atomic_scripts_in_db ?? "-");
+    setVal("admin-custom-db", data.custom_scripts_in_db ?? "-");
+    setVal("admin-yaml-disk", data.yaml_files_on_disk ?? "-");
+
+    const tbody = document.getElementById("admin-last-run-body");
+    const stats = data.last_run_stats || {};
+    if (!Object.keys(stats).length) {
+      tbody.innerHTML = `<tr><td colspan="2" class="empty-row">No run data yet</td></tr>`;
+    } else {
+      tbody.innerHTML = [
+        ["New scripts loaded", stats.loaded ?? 0],
+        ["Updated (changed)", stats.updated ?? 0],
+        ["Skipped (unchanged)", stats.skipped ?? 0],
+        ["Errors", stats.errors ?? 0],
+      ].map(([label, val]) =>
+        `<tr><td>${label}</td><td><strong>${val}</strong></td></tr>`
+      ).join("");
+    }
+
+    // Pre-fill API key input
+    const input = document.getElementById("apiKeyInput");
+    if (input) input.value = API_KEY;
+
+  } catch (err) {
+    console.error("[ADMIN] Status load failed:", err.message);
+  }
+}
+
+async function reloadAtomics() {
+  const btn = document.getElementById("reloadBtn");
+  const log = document.getElementById("admin-reload-log");
+  btn.disabled = true;
+  btn.textContent = "Reloading...";
+  log.className = "admin-log";
+  log.textContent = "[START] Sending reload request...";
+
+  try {
+    const data = await apiFetch("/api/v2/admin/atomics/reload", { method: "POST", body: "{}" });
+    const s = data.stats || {};
+    log.textContent = `[SUCCESS] Reload complete\n  loaded:  ${s.loaded ?? 0}\n  updated: ${s.updated ?? 0}\n  skipped: ${s.skipped ?? 0}\n  errors:  ${s.errors ?? 0}`;
+    log.classList.add("log-success");
+    // Refresh stats
+    await loadAdminStatus();
+    // Refresh script count on dashboard
+    apiFetch("/api/v2/scripts?limit=1&count_only=true")
+      .then((d) => setVal("stat-scripts-total", d.total || 0))
+      .catch(() => {});
+  } catch (err) {
+    log.textContent = `[ERROR] Reload failed: ${err.message}`;
+    log.classList.add("log-error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Reload Atomic Scripts";
+  }
+}
+
+function saveApiKey() {
+  const val = (document.getElementById("apiKeyInput").value || "").trim();
+  if (!val) return;
+  localStorage.setItem("morgana_api_key", val);
+  const saved = document.getElementById("apiKeySaved");
+  saved.style.display = "inline";
+  setTimeout(() => { saved.style.display = "none"; }, 2000);
+  // Reload page to pick up new key
+  location.reload();
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────

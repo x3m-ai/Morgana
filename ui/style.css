@@ -355,7 +355,33 @@ body {
 }
 .btn-secondary:hover { background: var(--bg-hover); }
 
-/* Inputs */
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+  border: none;
+}
+.btn-danger:hover { background: #c62828; }
+.btn-danger:disabled { opacity: .55; cursor: not-allowed; }
+
+/* Admin page */
+.admin-section { margin-top: 1.4rem; }
+.admin-section h3 { font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .05em; margin-bottom: .7rem; }
+.admin-hint { font-size: 12px; color: var(--text-secondary); margin-bottom: .9rem; line-height: 1.6; }
+.admin-hint code { background: var(--bg-input); padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 11px; }
+.admin-log {
+  margin-top: .8rem;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  font-family: monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+.admin-log.hidden { display: none; }
+.admin-log.log-success { border-color: var(--success); color: var(--success); }
+.admin-log.log-error   { border-color: var(--danger);  color: var(--danger); }
 .search-input, .select-input {
   background: var(--bg-input);
   border: 1px solid var(--border);

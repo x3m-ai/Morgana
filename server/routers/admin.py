@@ -5,6 +5,7 @@ POST /api/v2/admin/atomics/reload   Full wipe + re-import of all Atomic Red Team
 GET  /api/v2/admin/atomics/status   Show atomic loader stats from last run
 """
 import logging
+from typing import Optional
 from fastapi import APIRouter, Header, HTTPException
 from pathlib import Path
 
@@ -17,15 +18,18 @@ router = APIRouter()
 _last_stats: dict = {}
 
 
+def _require_api_key(key: Optional[str] = Header(None, alias="KEY")):
+    if key != settings.api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+
 @router.post("/atomics/reload")
-def reload_atomics(x_api_key: str = Header(...)):
+def reload_atomics(key: Optional[str] = Header(None, alias="KEY")):
     """
     Wipe all atomic-red-team scripts from DB and re-import from disk.
     Run this after updating the Atomic Red Team submodule.
-    Requires the admin API key.
     """
-    if x_api_key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+    _require_api_key(key)
 
     if not settings.atomic_path or not Path(settings.atomic_path).exists():
         raise HTTPException(status_code=503, detail="Atomic Red Team path not configured or not found")
@@ -44,10 +48,9 @@ def reload_atomics(x_api_key: str = Header(...)):
 
 
 @router.get("/atomics/status")
-def atomic_status(x_api_key: str = Header(...)):
+def atomic_status(key: Optional[str] = Header(None, alias="KEY")):
     """Return stats from the last atomic import run."""
-    if x_api_key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+    _require_api_key(key)
 
     from database import SessionLocal
     from models.script import Script
