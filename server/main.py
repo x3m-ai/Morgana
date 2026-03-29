@@ -6,7 +6,9 @@ FastAPI application serving:
   - /ui                -> Web UI (static files)
 """
 
+import json
 import logging
+import logging.handlers
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -25,14 +27,51 @@ from routers.scripts import router as scripts_router
 from routers.admin import router as admin_router
 from core.atomic_loader import AtomicLoader
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(settings.log_file, encoding="utf-8"),
-    ],
-)
+class _JsonFormatter(logging.Formatter):
+    """Emit one JSON object per log record — consistent with the Go agent format."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        entry = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%SZ"),
+            "level": record.levelname,
+            "name": record.name,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info:
+            entry["exc"] = self.formatException(record.exc_info)
+        return json.dumps(entry)
+
+
+def _setup_logging() -> None:
+    """Configure root logging: JSON format, rotating file, level from env."""
+    level_name = os.getenv("MORGANA_LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+
+    formatter = _JsonFormatter()
+
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+
+    file_handler = logging.handlers.RotatingFileHandler(
+        settings.log_file,
+        maxBytes=10 * 1024 * 1024,  # 10 MB
+        backupCount=5,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(formatter)
+
+    root = logging.getLogger()
+    root.setLevel(level)
+    root.handlers.clear()
+    root.addHandler(stream_handler)
+    root.addHandler(file_handler)
+
+    # Quieten noisy third-party loggers
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+
+
+_setup_logging()
 log = logging.getLogger("morgana.server")
 
 

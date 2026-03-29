@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gopkg.in/lumberjack.v2"
 )
 
 type Level int
@@ -26,48 +28,67 @@ func (l Level) String() string {
 	return [...]string{"DEBUG", "INFO", "WARN", "ERROR"}[l]
 }
 
-type Logger struct {
-	name  string
-	level Level
-	out   io.Writer
-	mu    sync.Mutex
-}
-
+// globalWriter is the shared destination for all loggers.
+// All Logger instances write here, so InitFile() affects every logger
+// even those created before the file was opened.
 var (
-	defaultLevel = INFO
-	logFile      io.Writer
-	once         sync.Once
+	globalWriter io.Writer = os.Stdout
+	globalLevel            = parseEnvLevel()
+	globalMu     sync.RWMutex
 )
 
-// InitFile opens the log file for writing.
+// parseEnvLevel reads MORGANA_LOG_LEVEL (DEBUG/INFO/WARN/ERROR), defaults INFO.
+func parseEnvLevel() Level {
+	switch strings.ToUpper(os.Getenv("MORGANA_LOG_LEVEL")) {
+	case "DEBUG":
+		return DEBUG
+	case "WARN", "WARNING":
+		return WARN
+	case "ERROR":
+		return ERROR
+	default:
+		return INFO
+	}
+}
+
+// InitFile sets up a rotating log file. Safe to call at any point; all
+// existing Logger instances immediately start writing to the file.
+// Rotation: 10 MB per file, 5 backups kept, 30-day retention, compressed.
 func InitFile(path string) {
-	once.Do(func() {
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			return
-		}
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			return
-		}
-		logFile = f
-	})
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "[logger] could not create log dir: %v\n", err)
+		return
+	}
+	rotator := &lumberjack.Logger{
+		Filename:   path,
+		MaxSize:    10, // MB
+		MaxBackups: 5,
+		MaxAge:     30, // days
+		Compress:   true,
+		LocalTime:  false,
+	}
+	globalMu.Lock()
+	globalWriter = io.MultiWriter(os.Stdout, rotator)
+	globalMu.Unlock()
+}
+
+type Logger struct {
+	name string
 }
 
 // New creates a new Logger with the given name.
+// It always uses the current globalWriter, so InitFile() applies retroactively.
 func New(name string) *Logger {
-	writers := []io.Writer{os.Stdout}
-	if logFile != nil {
-		writers = append(writers, logFile)
-	}
-	return &Logger{
-		name:  name,
-		level: defaultLevel,
-		out:   io.MultiWriter(writers...),
-	}
+	return &Logger{name: name}
 }
 
 func (l *Logger) log(level Level, msg string, fields map[string]any) {
-	if level < l.level {
+	globalMu.RLock()
+	lvl := globalLevel
+	w := globalWriter
+	globalMu.RUnlock()
+
+	if level < lvl {
 		return
 	}
 
@@ -85,10 +106,7 @@ func (l *Logger) log(level Level, msg string, fields map[string]any) {
 	if err != nil {
 		return
 	}
-
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	fmt.Fprintln(l.out, string(data))
+	fmt.Fprintln(w, string(data))
 }
 
 func (l *Logger) Debug(msg string, fields map[string]any) { l.log(DEBUG, msg, fields) }
