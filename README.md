@@ -1,5 +1,9 @@
 # Morgana
 
+<p align="center">
+  <img src="ui/assets/morgana_logo.png" alt="Morgana" width="220" />
+</p>
+
 > **Version:** 0.1.0 (Alpha) | **March 2026**
 > **Publisher:** X3M.AI Ltd (UK) | **Author:** Nino Crudele
 > **Companion to:** [Merlino Excel Add-in](https://merlino.x3m.ai)

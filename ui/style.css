@@ -64,6 +64,14 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.brand-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
+  border-radius: 6px;
+}
+
 .brand-icon {
   width: 32px; height: 32px;
   background: var(--accent);

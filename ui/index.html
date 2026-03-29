@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Morgana - Red Team Platform</title>
+  <link rel="icon" type="image/png" href="assets/morgana_logo.png" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -12,7 +13,8 @@
     <!-- Sidebar -->
     <nav class="sidebar">
       <div class="sidebar-brand">
-        <span class="brand-icon">M</span>
+        <img src="assets/morgana_logo.png" alt="Morgana" class="brand-logo" onerror="this.style.display='none';document.getElementById('brand-fallback').style.display='inline'" />
+        <span class="brand-icon" id="brand-fallback" style="display:none">M</span>
         <span class="brand-name">Morgana</span>
         <span class="brand-version">v0.1.0</span>
       </div>
