@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 )
 
 // Config holds the agent runtime configuration.
@@ -115,5 +116,8 @@ func (c *Config) HTTPClient() *http.Client {
 			MinVersion:         tls.VersionTLS12,
 		},
 	}
-	return &http.Client{Transport: transport}
+	return &http.Client{
+		Transport: transport,
+		Timeout:   15 * time.Second, // Prevent indefinite hang if server is down
+	}
 }

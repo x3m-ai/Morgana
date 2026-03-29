@@ -51,7 +51,7 @@ async def register(body: RegisterRequest, db: Session = Depends(get_db)):
     if not _validate_deploy_token(body.deploy_token):
         raise HTTPException(status_code=403, detail="Invalid or expired deploy token")
 
-    paw = secrets.token_hex(4)  # Short 8-char hex ID
+    paw = secrets.token_hex(8)  # 16-char hex ID — 64-bit space, collision-safe
     agent_token = secrets.token_urlsafe(48)
     token_hash = hashlib.sha256(agent_token.encode()).hexdigest()
 
