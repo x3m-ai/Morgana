@@ -32,6 +32,8 @@ vendor/
 # SQLite
 server/db/morgana.db
 server/db/*.db
+server/db/*.db-shm
+server/db/*.db-wal
 *.sqlite
 *.sqlite3
 
