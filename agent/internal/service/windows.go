@@ -63,10 +63,13 @@ func (m *windowsManager) Install(serverURL, deployToken string, interval int) (*
 	}
 	cfg.WorkDir = workDir
 
-	// Copy binary to install dir
+	// Copy binary to install dir; fall back to current exe path if copy fails
 	exePath := filepath.Join(installDir, "morgana-agent.exe")
 	if err := copySelf(exePath); err != nil {
-		m.log.Warn("[INSTALL] Could not copy binary (already installed?)", map[string]any{"error": err.Error()})
+		m.log.Warn("[INSTALL] Could not copy binary to install dir, using current exe path", map[string]any{"error": err.Error()})
+		if self, selfErr := os.Executable(); selfErr == nil {
+			exePath = self
+		}
 	}
 
 	// Save config
@@ -86,9 +89,11 @@ func (m *windowsManager) Install(serverURL, deployToken string, interval int) (*
 		return nil, fmt.Errorf("NT Service install: %w", err)
 	}
 
-	// Start the service
+	// Start the service — best effort, may require a second elevated call on some systems
 	if err := m.startNTService(); err != nil {
-		return nil, fmt.Errorf("NT Service start: %w", err)
+		m.log.Warn("[INSTALL] NT Service installed but could not auto-start (start it manually with: sc start MorganaAgent)", map[string]any{"error": err.Error()})
+	} else {
+		m.log.Info("[INSTALL] NT Service started", nil)
 	}
 
 	return cfg, nil
@@ -117,7 +122,7 @@ func (m *windowsManager) installNTService(exePath string) error {
 		ServiceStartName: "LocalSystem",
 	}
 
-	s, err := scm.CreateService(m.name, exePath+" run", svcConfig)
+	s, err := scm.CreateService(m.name, exePath, svcConfig, "run")
 	if err != nil {
 		return fmt.Errorf("create service: %w", err)
 	}
@@ -176,10 +181,65 @@ func (m *windowsManager) Uninstall(purge bool) error {
 
 func (m *windowsManager) RunForeground(cfg *config.Config) error {
 	logger.InitFile(logger.AgentLogPath())
+
+	// Detect whether we are invoked by the Windows SCM (service mode) or interactively.
+	isService, err := svc.IsWindowsService()
+	if err != nil {
+		return fmt.Errorf("svc.IsWindowsService: %w", err)
+	}
+
+	if isService {
+		// Hand control to the SCM — Execute() will be called by the runtime.
+		return svc.Run(m.name, &agentService{cfg: cfg, log: m.log})
+	}
+
+	// Interactive / standalone mode (e.g. run from a terminal).
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b := beacon.New(cfg)
 	return b.Run(ctx)
+}
+
+// agentService implements golang.org/x/sys/windows/svc.Handler.
+type agentService struct {
+	cfg *config.Config
+	log *logger.Logger
+}
+
+// Execute is the entry point called by the Windows SCM.
+func (a *agentService) Execute(args []string, r <-chan svc.ChangeRequest, s chan<- svc.Status) (svcSpecificEC bool, exitCode uint32) {
+	// Signal to SCM that we are running and accept Stop + Shutdown.
+	s <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		b := beacon.New(a.cfg)
+		done <- b.Run(ctx)
+	}()
+
+	for {
+		select {
+		case c := <-r:
+			switch c.Cmd {
+			case svc.Stop, svc.Shutdown:
+				a.log.Info("[RUN] Stop requested by SCM", nil)
+				s <- svc.Status{State: svc.StopPending}
+				cancel()
+				<-done
+				return false, 0
+			case svc.Interrogate:
+				s <- c.CurrentStatus
+			}
+		case err := <-done:
+			if err != nil {
+				a.log.Error("[RUN] Beacon exited with error", map[string]any{"error": err.Error()})
+			}
+			return false, 0
+		}
+	}
 }
 
 func (m *windowsManager) Status() (string, error) {

@@ -78,7 +78,7 @@ func handleInstall(log *logger.Logger) {
 		os.Exit(1)
 	}
 
-	log.Info("[INSTALL] Agent installed and started", map[string]any{
+	log.Info("[INSTALL] Agent installed", map[string]any{
 		"paw": cfg.PAW,
 	})
 	fmt.Printf("SUCCESS: Morgana Agent installed.\n")
@@ -86,7 +86,7 @@ func handleInstall(log *logger.Logger) {
 	fmt.Printf("  Server:   %s\n", cfg.ServerURL)
 	fmt.Printf("  Interval: %ds\n", cfg.BeaconInterval)
 	fmt.Printf("  Work dir: %s\n", cfg.WorkDir)
-	fmt.Printf("\nThe agent service is now running and will poll the server every %d seconds.\n", cfg.BeaconInterval)
+	fmt.Printf("\nIf the service did not start automatically run:\n  sc start MorganaAgent\n")
 }
 
 func handleUninstall(log *logger.Logger) {
