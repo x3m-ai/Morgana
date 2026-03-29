@@ -25,8 +25,8 @@ class Settings:
         "null",  # file:// origins (Excel Desktop add-in)
     ]
 
-    # TLS
-    ssl_enabled: bool = os.getenv("MORGANA_SSL", "true").lower() == "true"
+    # TLS - disabled by default for local dev; set MORGANA_SSL=true + provide certs for production
+    ssl_enabled: bool = os.getenv("MORGANA_SSL", "false").lower() == "true"
     ssl_certfile: str = os.getenv("MORGANA_CERT", str(BASE_DIR / "certs" / "server.crt"))
     ssl_keyfile: str = os.getenv("MORGANA_KEY", str(BASE_DIR / "certs" / "server.key"))
 

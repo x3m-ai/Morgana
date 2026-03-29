@@ -10,8 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
-from ...database import get_db
-from ...models.script import Script
+from database import get_db
+from models.script import Script
 
 router = APIRouter()
 
