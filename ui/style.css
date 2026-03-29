@@ -60,14 +60,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
+  padding: 16px 12px;
   border-bottom: 1px solid var(--border);
 }
 
 .brand-logo {
-  width: 100%;
-  height: auto;
-  max-height: 200px;
+  width: auto;
+  height: 52px;
+  max-width: 100%;
   object-fit: contain;
   display: block;
 }
