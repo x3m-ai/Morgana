@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Morgana - Red Team Platform</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="layout">
+
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-icon">M</span>
+        <span class="brand-name">Morgana</span>
+        <span class="brand-version">v0.1.0</span>
+      </div>
+      <ul class="nav-links">
+        <li class="nav-item active" data-page="dashboard">
+          <span class="nav-icon">[D]</span> Dashboard
+        </li>
+        <li class="nav-item" data-page="agents">
+          <span class="nav-icon">[A]</span> Agents
+        </li>
+        <li class="nav-item" data-page="scripts">
+          <span class="nav-icon">[S]</span> Scripts
+        </li>
+        <li class="nav-item" data-page="chains">
+          <span class="nav-icon">[C]</span> Chains
+        </li>
+        <li class="nav-item" data-page="tests">
+          <span class="nav-icon">[T]</span> Tests
+        </li>
+        <li class="nav-item" data-page="campaigns">
+          <span class="nav-icon">[P]</span> Campaigns
+        </li>
+      </ul>
+      <div class="sidebar-footer">
+        <div class="server-status" id="serverStatus">
+          <span class="status-dot offline"></span> Connecting...
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main content -->
+    <main class="main-content">
+
+      <!-- Dashboard page -->
+      <div id="page-dashboard" class="page active">
+        <div class="page-header">
+          <h1>Dashboard</h1>
+          <div class="header-actions">
+            <button class="btn btn-primary" onclick="refreshDashboard()">Refresh</button>
+          </div>
+        </div>
+
+        <!-- Stats row -->
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-value" id="stat-agents-online">0</div>
+            <div class="stat-label">Agents Online</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-tests-running">0</div>
+            <div class="stat-label">Tests Running</div>
+          </div>
+          <div class="stat-card success">
+            <div class="stat-value" id="stat-tests-success">0</div>
+            <div class="stat-label">Tests Passed</div>
+          </div>
+          <div class="stat-card danger">
+            <div class="stat-value" id="stat-tests-failed">0</div>
+            <div class="stat-label">Tests Failed</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-scripts-total">0</div>
+            <div class="stat-label">Scripts (Atomic)</div>
+          </div>
+        </div>
+
+        <!-- Recent tests -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Recent Tests</h2>
+          </div>
+          <div class="card-body">
+            <table class="data-table" id="recentTestsTable">
+              <thead>
+                <tr>
+                  <th>TCode</th>
+                  <th>Operation</th>
+                  <th>Agent</th>
+                  <th>State</th>
+                  <th>Exit</th>
+                  <th>Started</th>
+                  <th>Duration</th>
+                </tr>
+              </thead>
+              <tbody id="recentTestsBody">
+                <tr><td colspan="7" class="empty-row">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Agents quick view -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Agent Status</h2>
+          </div>
+          <div class="card-body">
+            <div id="agentsGrid" class="agents-grid">
+              <div class="empty-state">Loading agents...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agents page -->
+      <div id="page-agents" class="page">
+        <div class="page-header">
+          <h1>Agents</h1>
+          <div class="header-actions">
+            <button class="btn btn-primary" onclick="showDeployToken()">+ Deploy Agent</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-body">
+            <table class="data-table" id="agentsTable">
+              <thead>
+                <tr>
+                  <th>PAW</th>
+                  <th>Hostname</th>
+                  <th>Platform</th>
+                  <th>OS</th>
+                  <th>Status</th>
+                  <th>Last Seen</th>
+                  <th>Beacon</th>
+                  <th>Tags</th>
+                </tr>
+              </thead>
+              <tbody id="agentsTableBody">
+                <tr><td colspan="8" class="empty-row">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scripts page -->
+      <div id="page-scripts" class="page">
+        <div class="page-header">
+          <h1>Scripts</h1>
+          <div class="header-actions">
+            <input type="text" id="scriptSearch" class="search-input" placeholder="Search by TCode, name..." oninput="filterScripts()">
+            <select id="scriptPlatform" class="select-input" onchange="filterScripts()">
+              <option value="">All platforms</option>
+              <option value="windows">Windows</option>
+              <option value="linux">Linux</option>
+              <option value="macos">macOS</option>
+            </select>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-body">
+            <table class="data-table" id="scriptsTable">
+              <thead>
+                <tr>
+                  <th>TCode</th>
+                  <th>Name</th>
+                  <th>Tactic</th>
+                  <th>Executor</th>
+                  <th>Platform</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody id="scriptsTableBody">
+                <tr><td colspan="6" class="empty-row">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tests page -->
+      <div id="page-tests" class="page">
+        <div class="page-header">
+          <h1>Tests</h1>
+          <div class="header-actions">
+            <button class="btn btn-secondary" onclick="loadTests()">Refresh</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-body">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Operation</th>
+                  <th>TCode</th>
+                  <th>Agent</th>
+                  <th>State</th>
+                  <th>Exit Code</th>
+                  <th>Duration</th>
+                  <th>Started</th>
+                  <th>Finished</th>
+                </tr>
+              </thead>
+              <tbody id="testsTableBody">
+                <tr><td colspan="8" class="empty-row">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chains page placeholder -->
+      <div id="page-chains" class="page">
+        <div class="page-header"><h1>Chains</h1></div>
+        <div class="card">
+          <div class="card-body">
+            <div class="empty-state">Chain builder coming soon. Chains are ordered sequences of Scripts forming attack paths.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Campaigns page placeholder -->
+      <div id="page-campaigns" class="page">
+        <div class="page-header"><h1>Campaigns</h1></div>
+        <div class="card">
+          <div class="card-body">
+            <div class="empty-state">Campaign management coming soon. Group related Tests into named exercises.</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Deploy token modal -->
+  <div id="deployModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Deploy Agent</h3>
+        <button class="modal-close" onclick="closeDeployModal()">x</button>
+      </div>
+      <div class="modal-body">
+        <p>Run this command on the target machine as Administrator/root:</p>
+        <div class="code-block" id="installCommand">Loading...</div>
+        <div class="modal-note">The API key is used as the deploy token for simplicity. In production, generate one-time tokens.</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

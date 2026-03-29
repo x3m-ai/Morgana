@@ -1,0 +1,84 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+pip-wheel-metadata/
+
+# Go
+agent/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# SQLite
+server/db/morgana.db
+server/db/*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+server/logs/
+
+# Work directory (agent runtime)
+work/
+
+# Atomics submodule (large - managed separately)
+atomics/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build artifacts
+build/dist/
+build/morgana-server.exe
+build/morgana-agent.exe
+
+# Secrets / tokens (NEVER commit these)
+*.token
+*.key
+*.pem
+*.crt
+*.p12
+server/config/secrets.json
+.env
+.env.local
+.env.*.local
+
+# Distribution
+dist/
+release/
+
+# PyInstaller
+*.spec.bak
+build/
+dist/
