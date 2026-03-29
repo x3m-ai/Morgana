@@ -1,14 +1,17 @@
 """
 Atomic Red Team YAML loader.
 Parses atomics/ directory and imports scripts into the Morgana database.
+
+Behavior:
+- load_all()   : on each boot, upserts all scripts (insert new, update changed, skip identical)
+- reload_all() : full wipe of atomic-red-team scripts then re-import (use after submodule update)
 """
 
 import json
 import logging
-import os
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import yaml
 
@@ -30,49 +33,86 @@ PLATFORM_MAP = {
     "darwin": "macos",
 }
 
+# Fields compared for change detection during upsert
+_UPSERT_FIELDS = ("name", "command", "cleanup_command", "description", "tactic", "executor", "platform", "input_args")
+
 
 class AtomicLoader:
     def __init__(self, atomics_path: str):
         self.atomics_path = Path(atomics_path)
 
-    def load_all(self) -> int:
-        """Load all Atomic YAML files into the database. Returns count of imported scripts."""
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def load_all(self) -> dict:
+        """
+        Boot-time loader. Upserts all Atomic scripts.
+        Returns {"loaded": int, "updated": int, "skipped": int, "errors": int}
+        """
+        return self._run_import(wipe_first=False)
+
+    def reload_all(self) -> dict:
+        """
+        Full reload: deletes all atomic-red-team scripts then re-imports from disk.
+        Use this after `git submodule update` to pick up all YAML changes.
+        Returns {"loaded": int, "updated": int, "skipped": int, "errors": int}
+        """
+        return self._run_import(wipe_first=True)
+
+    # ------------------------------------------------------------------
+    # Internal implementation
+    # ------------------------------------------------------------------
+
+    def _run_import(self, wipe_first: bool) -> dict:
         from database import SessionLocal
         from models.script import Script
 
         db = SessionLocal()
-        total = 0
+        stats = {"loaded": 0, "updated": 0, "skipped": 0, "errors": 0}
 
         try:
+            if wipe_first:
+                deleted = db.query(Script).filter(Script.source == "atomic-red-team").delete()
+                db.commit()
+                log.info("[ATOMIC] Wiped %d existing atomic scripts for full reload", deleted)
+
             yaml_files = list(self.atomics_path.rglob("T*.yaml"))
             log.info("[ATOMIC] Found %d YAML files in %s", len(yaml_files), self.atomics_path)
 
             for yaml_file in yaml_files:
                 try:
-                    count = self._load_file(db, yaml_file)
-                    total += count
+                    new, updated, skipped = self._load_file(db, yaml_file, upsert=not wipe_first)
+                    stats["loaded"] += new
+                    stats["updated"] += updated
+                    stats["skipped"] += skipped
                 except Exception as e:
+                    stats["errors"] += 1
                     log.warning("[ATOMIC] Failed to load %s: %s", yaml_file.name, str(e))
 
             db.commit()
-            log.info("[ATOMIC] Loaded %d scripts total", total)
-            return total
+            log.info(
+                "[ATOMIC] Done — loaded=%d updated=%d skipped=%d errors=%d",
+                stats["loaded"], stats["updated"], stats["skipped"], stats["errors"],
+            )
+            return stats
 
         except Exception as e:
-            log.error("[ATOMIC] Load failed: %s", str(e))
+            log.error("[ATOMIC] Import failed: %s", str(e))
             db.rollback()
-            return 0
+            return stats
         finally:
             db.close()
 
-    def _load_file(self, db, yaml_file: Path) -> int:
+    def _load_file(self, db, yaml_file: Path, upsert: bool) -> Tuple[int, int, int]:
+        """Returns (new_count, updated_count, skipped_count)."""
         from models.script import Script
 
         with open(yaml_file, "r", encoding="utf-8", errors="replace") as f:
             data = yaml.safe_load(f)
 
         if not data or not isinstance(data, dict):
-            return 0
+            return 0, 0, 0
 
         attack_technique = data.get("attack_technique", "")
         tactic = ""
@@ -84,26 +124,44 @@ class AtomicLoader:
 
         atomic_tests = data.get("atomic_tests", [])
         if not atomic_tests:
-            return 0
+            return 0, 0, 0
 
-        count = 0
+        new_count = updated_count = skipped_count = 0
+
         for test in atomic_tests:
             try:
-                script = self._parse_test(test, attack_technique, tactic)
-                if script is None:
+                parsed = self._parse_test(test, attack_technique, tactic)
+                if parsed is None:
+                    skipped_count += 1
                     continue
 
-                # Skip if already imported
-                existing = db.query(Script).filter(Script.atomic_id == script.atomic_id).first()
-                if existing:
+                if not upsert:
+                    # wipe_first=True path: just insert everything
+                    db.add(parsed)
+                    new_count += 1
                     continue
 
-                db.add(script)
-                count += 1
+                existing = db.query(Script).filter(Script.atomic_id == parsed.atomic_id).first()
+                if existing is None:
+                    db.add(parsed)
+                    new_count += 1
+                else:
+                    # Upsert: update only if any key field changed
+                    changed = False
+                    for field in _UPSERT_FIELDS:
+                        if getattr(existing, field) != getattr(parsed, field):
+                            setattr(existing, field, getattr(parsed, field))
+                            changed = True
+                    if changed:
+                        updated_count += 1
+                    else:
+                        skipped_count += 1
+
             except Exception as e:
                 log.debug("[ATOMIC] Skipped test in %s: %s", yaml_file.name, str(e))
+                skipped_count += 1
 
-        return count
+        return new_count, updated_count, skipped_count
 
     def _parse_test(self, test: dict, tcode: str, tactic: str) -> Optional[object]:
         from models.script import Script

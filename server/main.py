@@ -22,6 +22,7 @@ from database import init_db
 from routers.merlino import synchronize, realtime, ops_graph
 from routers.agent import poll, register, result, heartbeat
 from routers.scripts import router as scripts_router
+from routers.admin import router as admin_router
 from core.atomic_loader import AtomicLoader
 
 logging.basicConfig(
@@ -45,8 +46,14 @@ async def lifespan(app: FastAPI):
 
     if settings.atomic_path and Path(settings.atomic_path).exists():
         loader = AtomicLoader(settings.atomic_path)
-        count = loader.load_all()
-        log.info("[START] Loaded %d Atomic Red Team scripts", count)
+        stats = loader.load_all()
+        log.info(
+            "[START] Atomic Red Team — loaded=%d updated=%d skipped=%d errors=%d",
+            stats["loaded"], stats["updated"], stats["skipped"], stats["errors"],
+        )
+        # Share boot stats with admin router
+        import routers.admin as _admin_router
+        _admin_router._last_stats = stats
     else:
         log.warning("[START] Atomic Red Team path not configured or not found: %s", settings.atomic_path)
 
@@ -87,6 +94,9 @@ app.include_router(compat_agents.router, prefix="/api/v2", tags=["compat"])
 
 # Scripts CRUD
 app.include_router(scripts_router, prefix="/api/v2/scripts", tags=["scripts"])
+
+# Admin (reload atomics, status)
+app.include_router(admin_router, prefix="/api/v2/admin", tags=["admin"])
 
 # Serve web UI
 ui_path = Path(__file__).parent.parent / "ui"
