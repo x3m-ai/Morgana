@@ -136,11 +136,12 @@ $startArgs = @{
 }
 
 if ($NoWindow) {
-    # Background with hidden window, output redirected to log file
-    $startArgs["WindowStyle"]       = "Hidden"
+    # Background with hidden window, output redirected to log files
+    $ErrLogFile = Join-Path $ScriptDir "morgana-server-err.log"
+    $startArgs["WindowStyle"]            = "Hidden"
     $startArgs["RedirectStandardOutput"] = $LogFile
-    $startArgs["RedirectStandardError"]  = $LogFile
-    $startArgs["PassThru"]          = $true
+    $startArgs["RedirectStandardError"]  = $ErrLogFile
+    $startArgs["PassThru"]               = $true
 
     $proc = Start-Process @startArgs
     $proc.Id | Set-Content $PidFile -Encoding ASCII
