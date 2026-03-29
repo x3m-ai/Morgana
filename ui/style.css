@@ -47,8 +47,8 @@ body {
 
 /* Sidebar */
 .sidebar {
-  width: 300px;
-  min-width: 300px;
+  width: 200px;
+  min-width: 200px;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border);
   display: flex;
@@ -60,16 +60,16 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px 16px 18px;
+  padding: 0;
   border-bottom: 1px solid var(--border);
 }
 
 .brand-logo {
-  width: 280px;
+  width: 100%;
   height: auto;
-  max-height: 180px;
+  max-height: 200px;
   object-fit: contain;
-  flex-shrink: 0;
+  display: block;
 }
 
 .brand-icon {
