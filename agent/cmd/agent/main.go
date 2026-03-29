@@ -110,11 +110,44 @@ func handleUninstall(log *logger.Logger) {
 }
 
 func handleRun(log *logger.Logger) {
-	cfg, err := config.Load()
-	if err != nil {
-		log.Error("[RUN] Cannot load config - run 'install' first", map[string]any{"error": err.Error()})
-		fmt.Fprintf(os.Stderr, "ERROR: %v\nRun 'morgana-agent install' first.\n", err)
-		os.Exit(1)
+	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	serverURL := fs.String("server", "", "Morgana server URL (skips reading from config file)")
+	token := fs.String("token", "", "Deploy token (required when --server is set)")
+	interval := fs.Int("interval", 30, "Beacon interval in seconds")
+	fs.Parse(os.Args[2:])
+
+	var cfg *config.Config
+
+	if *serverURL != "" {
+		// Standalone mode: register directly without installing the NT service
+		if *token == "" {
+			fmt.Fprintln(os.Stderr, "ERROR: --token is required when --server is set")
+			os.Exit(1)
+		}
+
+		hostname, _ := os.Hostname()
+		var err error
+		cfg, err = service.RegisterWithServer(*serverURL, *token, hostname, runtime.GOOS, runtime.GOARCH, "run-mode", )
+		if err != nil {
+			log.Error("[RUN] Registration failed", map[string]any{"error": err.Error()})
+			fmt.Fprintf(os.Stderr, "ERROR: Registration failed: %v\n", err)
+			os.Exit(1)
+		}
+		cfg.BeaconInterval = *interval
+		log.Info("[RUN] Registered in standalone mode", map[string]any{
+			"paw":      cfg.PAW,
+			"server":   cfg.ServerURL,
+			"interval": cfg.BeaconInterval,
+		})
+	} else {
+		// Normal mode: load config written by 'install'
+		var err error
+		cfg, err = config.Load()
+		if err != nil {
+			log.Error("[RUN] Cannot load config - use 'install' or pass --server/--token", map[string]any{"error": err.Error()})
+			fmt.Fprintf(os.Stderr, "ERROR: %v\nTip: morgana-agent run --server <url> --token <token>\n", err)
+			os.Exit(1)
+		}
 	}
 
 	log.Info("[RUN] Starting Morgana Agent (foreground)", map[string]any{
@@ -157,6 +190,9 @@ COMMANDS:
     --purge           Also remove all data directories
 
   run        Run in foreground (debug mode, no service required)
+    --server <url>    Connect directly without installing service (optional)
+    --token  <token>  Deploy token, required if --server is set
+    --interval <n>    Beacon interval seconds (default: 30)
 
   status     Show service status
 
@@ -164,8 +200,8 @@ COMMANDS:
 
 EXAMPLES:
   morgana-agent install --server https://192.168.1.10:8888 --token DEPLOY_TOKEN_HERE
+  morgana-agent run --server http://localhost:8888 --token MORGANA_ADMIN_KEY
   morgana-agent uninstall --purge
-  morgana-agent run
   morgana-agent status
 `, AgentVersion)
 }
