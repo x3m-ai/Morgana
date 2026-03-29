@@ -121,24 +121,24 @@ Write-Host ""
 
 # ─── Step 2: Send synchronize requests with state=running ─────────────────────
 
-$tcodes = $testScripts | Select-Object -ExpandProperty tcode
+$tcodes = $testScripts | ForEach-Object { $_["tcode"] }
 
 for ($i = 1; $i -le $Count; $i++) {
     $tcode = $tcodes[($i - 1) % $tcodes.Count]
     $opName = "SimTest-$i-$(Get-Date -Format 'HHmmss')"
 
-    $syncPayload = @(
-        @{
-            operation_id  = [System.Guid]::NewGuid().ToString()
-            adversary_id  = [System.Guid]::NewGuid().ToString()
-            operation     = $opName
-            adversary     = "Simulation"
-            tcodes        = $tcode
-            assigned      = $AgentHostname
-            state         = "running"
-            group         = "red"
-        }
-    ) | ConvertTo-Json
+    $item = @{
+        operation_id  = [System.Guid]::NewGuid().ToString()
+        adversary_id  = [System.Guid]::NewGuid().ToString()
+        operation     = $opName
+        adversary     = "Simulation"
+        tcodes        = $tcode
+        assigned      = $AgentHostname
+        state         = "running"
+        group         = "red"
+    }
+    # Force JSON array wrapping (synchronize expects a list)
+    $syncPayload = "[" + ($item | ConvertTo-Json -Depth 10 -Compress) + "]"
 
     try {
         $resp = Invoke-RestMethod -Uri "$Server/api/v2/merlino/synchronize" -Method POST -Body $syncPayload -Headers $headers
