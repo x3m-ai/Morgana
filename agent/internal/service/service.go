@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"runtime"
 
 	"crypto/tls"
 
@@ -19,16 +18,6 @@ type Manager interface {
 	Uninstall(purge bool) error
 	RunForeground(cfg *config.Config) error
 	Status() (string, error)
-}
-
-// New returns the platform-appropriate service manager.
-func New(name, description string) Manager {
-	switch runtime.GOOS {
-	case "windows":
-		return newWindowsManager(name, description)
-	default:
-		return newLinuxManager(name, description)
-	}
 }
 
 // RegisterWithServer calls the Morgana server to enroll this agent.

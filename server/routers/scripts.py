@@ -93,16 +93,29 @@ def create_script(payload: dict, db: Session = Depends(get_db)):
         if not payload.get(field):
             raise HTTPException(status_code=422, detail=f"Field '{field}' is required")
 
+    tcode_upper = payload["tcode"].upper()
+    source = payload.get("source", "custom")
+
+    # Deduplication: if a script with the same name + tcode + source already exists, return it
+    existing = (
+        db.query(Script)
+        .filter(Script.name == payload["name"], Script.tcode == tcode_upper, Script.source == source)
+        .first()
+    )
+    if existing:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=200, content={"id": existing.id, "name": existing.name, "duplicate": True})
+
     s = Script(
         name=payload["name"],
-        tcode=payload["tcode"].upper(),
+        tcode=tcode_upper,
         tactic=payload.get("tactic"),
         executor=payload["executor"],
         command=payload["command"],
         cleanup_command=payload.get("cleanup_command"),
         input_args=payload.get("input_args"),
         platform=payload.get("platform", "all"),
-        source=payload.get("source", "custom"),
+        source=source,
         description=payload.get("description"),
     )
     db.add(s)

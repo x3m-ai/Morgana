@@ -18,6 +18,12 @@ import (
 	"github.com/x3m-ai/morgana-agent/internal/logger"
 )
 
+// New returns the Linux systemd service manager.
+func New(name, description string) Manager {
+	return newLinuxManager(name, description)
+}
+
+
 const systemdUnitTemplate = `[Unit]
 Description=Morgana Red Team Agent
 After=network.target

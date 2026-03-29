@@ -45,9 +45,6 @@ server/logs/
 # Work directory (agent runtime)
 work/
 
-# Atomics submodule (large - managed separately)
-atomics/
-
 # IDE
 .vscode/
 .idea/

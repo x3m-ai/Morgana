@@ -21,6 +21,12 @@ import (
 	"github.com/x3m-ai/morgana-agent/internal/logger"
 )
 
+// New returns the Windows NT service manager.
+func New(name, description string) Manager {
+	return newWindowsManager(name, description)
+}
+
+
 type windowsManager struct {
 	name string
 	desc string
