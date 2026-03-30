@@ -25,6 +25,7 @@ from routers.merlino import synchronize, realtime, ops_graph
 from routers.agent import poll, register, result, heartbeat
 from routers.scripts import router as scripts_router
 from routers.admin import router as admin_router
+from routers.tags import router as tags_router
 from core.atomic_loader import AtomicLoader
 
 class _JsonFormatter(logging.Formatter):
@@ -136,6 +137,9 @@ app.include_router(scripts_router, prefix="/api/v2/scripts", tags=["scripts"])
 
 # Admin (reload atomics, status)
 app.include_router(admin_router, prefix="/api/v2/admin", tags=["admin"])
+
+# Tags (entity labeling)
+app.include_router(tags_router, prefix="/api/v2/tags", tags=["tags"])
 
 # Serve web UI
 ui_path = Path(__file__).parent.parent / "ui"

@@ -1,19 +1,37 @@
 """
 Scripts router — CRUD for Script entities (Atomic Red Team tests + custom scripts).
-GET /api/v2/scripts          list with optional filters
-GET /api/v2/scripts/{id}     single script detail
-POST /api/v2/scripts         create custom script
-DELETE /api/v2/scripts/{id}  delete custom script
+GET    /api/v2/scripts          list with optional filters
+GET    /api/v2/scripts/{id}     single script detail
+POST   /api/v2/scripts          create custom script
+PUT    /api/v2/scripts/{id}     update script (custom only for source field, all editable)
+DELETE /api/v2/scripts/{id}     delete custom script
+POST   /api/v2/scripts/{id}/execute   run script on a specific agent
 """
+import hashlib
+import hmac
+import logging
+import uuid
+from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
+from config import settings
 from database import get_db
 from models.script import Script
+from models.agent import Agent
+from models.test import Test
+from models.job import Job
+from core.job_queue import job_queue
 
+log = logging.getLogger("morgana.router.scripts")
 router = APIRouter()
+
+
+def _auth(key: Optional[str] = Header(None, alias="KEY")):
+    if key != settings.api_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
 
 @router.get("")
@@ -66,7 +84,7 @@ def list_scripts(
 
 
 @router.get("/{script_id}")
-def get_script(script_id: int, db: Session = Depends(get_db)):
+def get_script(script_id: str, db: Session = Depends(get_db)):
     s = db.query(Script).filter(Script.id == script_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Script not found")
@@ -125,11 +143,101 @@ def create_script(payload: dict, db: Session = Depends(get_db)):
 
 
 @router.delete("/{script_id}", status_code=204)
-def delete_script(script_id: int, db: Session = Depends(get_db)):
+def delete_script(script_id: str, db: Session = Depends(get_db), _=Depends(_auth)):
     s = db.query(Script).filter(Script.id == script_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Script not found")
-    if s.source != "custom":
-        raise HTTPException(status_code=409, detail="Only custom scripts can be deleted. Atomic scripts are managed via the submodule.")
+    if s.source not in ("custom", "merlino"):
+        raise HTTPException(status_code=409, detail="Atomic Red Team scripts are managed via the submodule.")
     db.delete(s)
     db.commit()
+    log.info("[SCRIPT] Deleted: %s (%s)", s.name, script_id)
+
+
+@router.put("/{script_id}")
+def update_script(script_id: str, payload: dict, db: Session = Depends(get_db), _=Depends(_auth)):
+    s = db.query(Script).filter(Script.id == script_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    editable = ("name", "tcode", "tactic", "executor", "platform", "command",
+                "cleanup_command", "input_args", "description", "download_url")
+    for field in editable:
+        if field in payload:
+            val = payload[field]
+            if field == "tcode" and val:
+                val = val.upper()
+            setattr(s, field, val)
+
+    s.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(s)
+    log.info("[SCRIPT] Updated: %s (%s)", s.name, script_id)
+    return {
+        "id": s.id, "name": s.name, "tcode": s.tcode, "tactic": s.tactic,
+        "executor": s.executor, "platform": s.platform, "source": s.source,
+        "command": s.command, "cleanup_command": s.cleanup_command,
+        "input_args": s.input_args, "description": s.description,
+    }
+
+
+@router.post("/{script_id}/execute", status_code=201)
+def execute_script(script_id: str, payload: dict, db: Session = Depends(get_db), _=Depends(_auth)):
+    """Run a script on a specific agent immediately (creates Test + Job + enqueues)."""
+    s = db.query(Script).filter(Script.id == script_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    paw = payload.get("paw")
+    if not paw:
+        raise HTTPException(status_code=422, detail="'paw' (agent PAW) is required")
+
+    agent = db.query(Agent).filter(Agent.paw == paw).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent '{paw}' not found")
+
+    if agent.status == "offline":
+        raise HTTPException(status_code=409, detail=f"Agent '{paw}' is offline")
+
+    # Resolve input_args: use defaults + caller overrides
+    input_overrides = payload.get("input_args", {})
+
+    # Create Test record
+    test = Test(
+        id=str(uuid.uuid4()),
+        script_id=script_id,
+        tcode=s.tcode,
+        agent_id=agent.id,
+        operation_name=f"manual:{s.name}",
+        state="pending",
+    )
+    db.add(test)
+    db.flush()  # get test.id
+
+    # Create Job record
+    job_id = str(uuid.uuid4())
+    import json as _json
+    job = Job(
+        id=job_id,
+        test_id=test.id,
+        agent_id=agent.id,
+        script_id=script_id,
+        executor=s.executor,
+        command=s.command,
+        cleanup_command=s.cleanup_command,
+        input_args=_json.dumps(input_overrides) if input_overrides else s.input_args,
+        timeout_seconds=payload.get("timeout_seconds", 300),
+        status="pending",
+    )
+    # Sign job
+    job_payload = f"{job.id}:{job.command}:{job.executor}"
+    job.signature = hmac.new(settings.hmac_secret.encode(), job_payload.encode(), "sha256").hexdigest()
+
+    db.add(job)
+    db.commit()
+
+    # Enqueue for agent pickup
+    job_queue.enqueue(paw, job_id)
+    log.info("[EXECUTE] Script %s queued for agent %s (job=%s, test=%s)", script_id, paw, job_id, test.id)
+
+    return {"test_id": test.id, "job_id": job_id, "paw": paw, "queued": True}

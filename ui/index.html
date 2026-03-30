@@ -163,6 +163,7 @@
               <option value="linux">Linux</option>
               <option value="macos">macOS</option>
             </select>
+            <button class="btn btn-primary" onclick="openNewScriptModal()">+ New Script</button>
           </div>
         </div>
         <div class="card">
@@ -176,10 +177,12 @@
                   <th>Executor</th>
                   <th>Platform</th>
                   <th>Source</th>
+                  <th>Tags</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="scriptsTableBody">
-                <tr><td colspan="6" class="empty-row">Loading...</td></tr>
+                <tr><td colspan="8" class="empty-row">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -299,6 +302,42 @@
             </div>
           </div>
         </div>
+
+        <!-- Tags management -->
+        <div class="card" style="margin-top:1rem">
+          <div class="card-header">
+            <h2>Tags</h2>
+            <div class="header-actions">
+              <button class="btn btn-primary" onclick="showCreateTagForm()">+ New Tag</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="createTagForm" class="create-tag-form hidden">
+              <div class="form-row">
+                <input type="text" id="tagName" class="search-input" placeholder="Tag name *" />
+                <input type="text" id="tagGroup" class="search-input" placeholder="Group (default: general)" />
+                <select id="tagScope" class="select-input">
+                  <option value="all">All entities</option>
+                  <option value="agent">Agent only</option>
+                  <option value="script">Script only</option>
+                  <option value="chain">Chain only</option>
+                  <option value="test">Test only</option>
+                  <option value="campaign">Campaign only</option>
+                </select>
+                <input type="color" id="tagColor" value="#667eea" title="Tag color" style="width:40px;height:33px;border:none;background:none;cursor:pointer" />
+              </div>
+              <div class="form-row" style="margin-top:.5rem">
+                <input type="text" id="tagDescription" class="search-input" style="flex:1" placeholder="Description (optional)" />
+                <button class="btn btn-primary" onclick="createTag()">Create</button>
+                <button class="btn btn-secondary" onclick="hideCreateTagForm()">Cancel</button>
+              </div>
+            </div>
+            <table class="data-table" id="tagsTable" style="margin-top:.5rem">
+              <thead><tr><th>Name</th><th>Group</th><th>Scope</th><th>Description</th><th>Usage</th><th></th></tr></thead>
+              <tbody id="tagsTableBody"><tr><td colspan="6" class="empty-row">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
     </main>
@@ -315,6 +354,115 @@
         <p>Run this command on the target machine as Administrator/root:</p>
         <div class="code-block" id="installCommand">Loading...</div>
         <div class="modal-note">The API key is used as the deploy token for simplicity. In production, generate one-time tokens.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Script editor modal -->
+  <div id="scriptModal" class="modal hidden">
+    <div class="modal-content modal-wide">
+      <div class="modal-header">
+        <h3 id="scriptModalTitle">Script</h3>
+        <button class="modal-close" onclick="closeScriptModal()">x</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Name *</label>
+            <input type="text" id="sm-name" class="search-input" />
+          </div>
+          <div class="form-group">
+            <label>TCode *</label>
+            <input type="text" id="sm-tcode" class="search-input" placeholder="e.g. T1059.001" />
+          </div>
+          <div class="form-group">
+            <label>Tactic</label>
+            <input type="text" id="sm-tactic" class="search-input" placeholder="e.g. execution" />
+          </div>
+          <div class="form-group">
+            <label>Executor *</label>
+            <select id="sm-executor" class="select-input">
+              <option value="powershell">powershell</option>
+              <option value="cmd">cmd</option>
+              <option value="bash">bash</option>
+              <option value="python">python</option>
+              <option value="sh">sh</option>
+              <option value="manual">manual</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Platform</label>
+            <select id="sm-platform" class="select-input">
+              <option value="all">all</option>
+              <option value="windows">windows</option>
+              <option value="linux">linux</option>
+              <option value="macos">macos</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Source</label>
+            <input type="text" id="sm-source" class="search-input" readonly style="opacity:.6" />
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:.8rem">
+          <label>Description</label>
+          <input type="text" id="sm-description" class="search-input" style="width:100%" />
+        </div>
+        <div class="form-group" style="margin-top:.8rem">
+          <label>Command *</label>
+          <textarea id="sm-command" class="code-editor" rows="6" spellcheck="false"></textarea>
+        </div>
+        <div class="form-group" style="margin-top:.8rem">
+          <label>Cleanup command</label>
+          <textarea id="sm-cleanup" class="code-editor" rows="3" spellcheck="false"></textarea>
+        </div>
+
+        <div class="modal-divider"></div>
+
+        <!-- Execute section -->
+        <div class="execute-section">
+          <h4>Execute on Agent</h4>
+          <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+            <select id="sm-agent-select" class="select-input" style="min-width:220px">
+              <option value="">Select agent...</option>
+            </select>
+            <button class="btn btn-primary" onclick="executeScriptFromModal()">Run Now</button>
+            <span id="sm-execute-result" class="admin-hint" style="display:none"></span>
+          </div>
+        </div>
+
+        <div class="modal-divider"></div>
+
+        <!-- Tags section -->
+        <div class="form-group" style="margin-top:.5rem">
+          <label>Tags</label>
+          <div id="sm-tags-container" class="tags-container">
+            <span class="admin-hint">Loading...</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" style="margin-top:.4rem" onclick="openTagPicker('script', _currentScriptId)">+ Add Tag</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger" id="sm-delete-btn" onclick="deleteScriptFromModal()">Delete</button>
+        <button class="btn btn-secondary" onclick="closeScriptModal()">Close</button>
+        <button class="btn btn-primary" onclick="saveScriptFromModal()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tag picker modal -->
+  <div id="tagPickerModal" class="modal hidden">
+    <div class="modal-content" style="max-width:480px">
+      <div class="modal-header">
+        <h3>Assign Tags</h3>
+        <button class="modal-close" onclick="closeTagPicker()">x</button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="tagPickerSearch" class="search-input" style="width:100%;margin-bottom:.8rem" placeholder="Filter tags..." oninput="filterTagPicker()" />
+        <div id="tagPickerList" class="tag-picker-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeTagPicker()">Done</button>
       </div>
     </div>
   </div>

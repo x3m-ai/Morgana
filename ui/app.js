@@ -36,7 +36,7 @@ function navigateTo(page) {
     case "agents":    loadAgents(); break;
     case "scripts":   loadScripts(); break;
     case "tests":     loadTests(); break;
-    case "admin":     loadAdminStatus(); break;
+    case "admin":     loadAdminStatus(); loadTags(); break;
   }
 }
 
@@ -195,7 +195,7 @@ async function loadScripts() {
 function renderScripts(scripts) {
   const tbody = document.getElementById("scriptsTableBody");
   if (!scripts.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No scripts loaded. Make sure the Atomic Red Team submodule is initialized.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-row">No scripts loaded. Make sure the Atomic Red Team submodule is initialized.</td></tr>`;
     return;
   }
   tbody.innerHTML = scripts.slice(0, 500).map((s) => `
@@ -206,8 +206,12 @@ function renderScripts(scripts) {
       <td><code>${escHtml(s.executor || "?")}</code></td>
       <td>${escHtml(s.platform || "all")}</td>
       <td><span style="font-size:11px;color:var(--text-muted)">${escHtml(s.source || "custom")}</span></td>
+      <td id="tags-script-${escHtml(s.id)}" class="tags-container" style="min-width:80px"></td>
+      <td><button class="btn-open" onclick="openScriptModal('${escHtml(s.id)}')">Open</button></td>
     </tr>
   `).join("");
+  // Load tags asynchronously for each row (batch, non-blocking)
+  scripts.slice(0, 500).forEach((s) => loadEntityTagsInline("script", s.id, `tags-script-${s.id}`));
 }
 
 function filterScripts() {
@@ -349,6 +353,342 @@ function saveApiKey() {
   // Reload page to pick up new key
   location.reload();
 }
+
+// ─── Script Editor Modal ──────────────────────────────────────────────────────
+
+let _currentScriptId = null;
+let _currentScriptIsAtomic = false;
+
+function openNewScriptModal() {
+  _currentScriptId = null;
+  _currentScriptIsAtomic = false;
+  document.getElementById("scriptModalTitle").textContent = "New Script";
+  ["sm-name", "sm-tcode", "sm-tactic", "sm-description", "sm-command", "sm-cleanup", "sm-source"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+  setVal("sm-source", "custom");
+  document.getElementById("sm-executor").value = "powershell";
+  document.getElementById("sm-platform").value = "windows";
+  document.getElementById("sm-delete-btn").style.display = "none";
+  document.getElementById("sm-tags-container").innerHTML = "<span class='admin-hint'>Save script first to assign tags.</span>";
+  _loadAgentOptions();
+  document.getElementById("sm-execute-result").style.display = "none";
+  document.getElementById("scriptModal").classList.remove("hidden");
+}
+
+function openScriptModal(scriptId) {
+  const s = allScripts.find((x) => String(x.id) === String(scriptId));
+  if (!s) { console.warn("[SCRIPT_MODAL] Script not found:", scriptId); return; }
+  _currentScriptId = s.id;
+  _currentScriptIsAtomic = (s.source || "") !== "custom";
+
+  document.getElementById("scriptModalTitle").textContent = escHtml(s.name || "Script");
+  document.getElementById("sm-name").value = s.name || "";
+  document.getElementById("sm-tcode").value = s.tcode || "";
+  document.getElementById("sm-tactic").value = s.tactic || "";
+  document.getElementById("sm-description").value = s.description || "";
+  document.getElementById("sm-command").value = s.command || "";
+  document.getElementById("sm-cleanup").value = s.cleanup_command || "";
+  document.getElementById("sm-source").value = s.source || "custom";
+  document.getElementById("sm-executor").value = s.executor || "powershell";
+  document.getElementById("sm-platform").value = s.platform || "all";
+
+  // Atomic scripts are read-only except for tags/execute
+  const readOnly = _currentScriptIsAtomic;
+  ["sm-name", "sm-tcode", "sm-tactic", "sm-description", "sm-command", "sm-cleanup"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.readOnly = readOnly;
+  });
+  document.getElementById("sm-delete-btn").style.display = readOnly ? "none" : "inline-flex";
+
+  document.getElementById("sm-execute-result").style.display = "none";
+  _loadAgentOptions();
+  loadEntityTagsInModal("script", s.id, "sm-tags-container");
+  document.getElementById("scriptModal").classList.remove("hidden");
+}
+
+function closeScriptModal() {
+  document.getElementById("scriptModal").classList.add("hidden");
+  _currentScriptId = null;
+}
+
+async function saveScriptFromModal() {
+  const payload = {
+    name: document.getElementById("sm-name").value.trim(),
+    tcode: document.getElementById("sm-tcode").value.trim(),
+    tactic: document.getElementById("sm-tactic").value.trim(),
+    description: document.getElementById("sm-description").value.trim(),
+    command: document.getElementById("sm-command").value,
+    cleanup_command: document.getElementById("sm-cleanup").value,
+    executor: document.getElementById("sm-executor").value,
+    platform: document.getElementById("sm-platform").value,
+  };
+  if (!payload.name || !payload.tcode || !payload.command) {
+    alert("Name, TCode and Command are required.");
+    return;
+  }
+  try {
+    if (_currentScriptId) {
+      await apiFetch(`/api/v2/scripts/${_currentScriptId}`, { method: "PUT", body: JSON.stringify(payload) });
+    } else {
+      const created = await apiFetch("/api/v2/scripts", { method: "POST", body: JSON.stringify(payload) });
+      _currentScriptId = created.id;
+    }
+    // Refresh local cache
+    const updated = await apiFetch("/api/v2/scripts?limit=5000");
+    allScripts = updated.scripts || updated || [];
+    document.getElementById("scriptModalTitle").textContent = escHtml(payload.name);
+    document.getElementById("sm-delete-btn").style.display = "inline-flex";
+    alert("Script saved.");
+  } catch (err) {
+    alert("Save failed: " + err.message);
+  }
+}
+
+async function deleteScriptFromModal() {
+  if (!_currentScriptId) return;
+  if (!confirm("Delete this script permanently?")) return;
+  try {
+    await apiFetch(`/api/v2/scripts/${_currentScriptId}`, { method: "DELETE" });
+    allScripts = allScripts.filter((s) => String(s.id) !== String(_currentScriptId));
+    renderScripts(allScripts);
+    closeScriptModal();
+  } catch (err) {
+    alert("Delete failed: " + err.message);
+  }
+}
+
+async function _loadAgentOptions() {
+  const sel = document.getElementById("sm-agent-select");
+  try {
+    const agents = await apiFetch("/api/v2/agents");
+    const list = agents.agents || agents || [];
+    sel.innerHTML = `<option value="">Select agent...</option>` +
+      list.map((a) => `<option value="${escHtml(a.paw)}">${escHtml(a.hostname || a.paw)} (${escHtml(a.paw)})</option>`).join("");
+  } catch (err) {
+    sel.innerHTML = `<option value="">Could not load agents</option>`;
+  }
+}
+
+async function executeScriptFromModal() {
+  if (!_currentScriptId) { alert("Save the script before executing."); return; }
+  const paw = document.getElementById("sm-agent-select").value;
+  if (!paw) { alert("Select an agent first."); return; }
+  const resultEl = document.getElementById("sm-execute-result");
+  resultEl.textContent = "Queuing...";
+  resultEl.style.display = "inline";
+  try {
+    const result = await apiFetch(`/api/v2/scripts/${_currentScriptId}/execute`, {
+      method: "POST",
+      body: JSON.stringify({ paw }),
+    });
+    resultEl.textContent = result.queued ? `[SUCCESS] Job ${result.job_id} queued.` : "[WARN] Unexpected response.";
+  } catch (err) {
+    resultEl.textContent = "[ERROR] " + err.message;
+  }
+}
+
+
+// ─── Tags ─────────────────────────────────────────────────────────────────────
+
+let _allTags = [];
+let _tagPickerContext = { entityType: null, entityId: null };
+
+async function loadTags() {
+  try {
+    const data = await apiFetch("/api/v2/tags");
+    _allTags = data.tags || data || [];
+    renderTagsAdmin(_allTags);
+  } catch (err) {
+    console.error("[TAGS] Load failed:", err.message);
+  }
+}
+
+function renderTagsAdmin(tags) {
+  const tbody = document.getElementById("tagsTableBody");
+  if (!tbody) return;
+  if (!tags.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No tags defined yet.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = tags.map((t) => `
+    <tr>
+      <td><span class="tag-badge" style="background:${escHtml(t.color || "#667eea")}">${escHtml(t.name)}</span></td>
+      <td>${escHtml(t.group_name || "-")}</td>
+      <td>${escHtml(t.scope || "all")}</td>
+      <td style="font-size:12px">${escHtml(t.description || "")}</td>
+      <td>-</td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteTag('${escHtml(t.id)}')">Delete</button></td>
+    </tr>
+  `).join("");
+}
+
+function showCreateTagForm() {
+  const form = document.getElementById("createTagForm");
+  if (form) form.classList.remove("hidden");
+}
+
+function hideCreateTagForm() {
+  const form = document.getElementById("createTagForm");
+  if (form) form.classList.add("hidden");
+  ["tagName", "tagGroup", "tagDescription"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+  const scopeEl = document.getElementById("tagScope");
+  if (scopeEl) scopeEl.value = "all";
+  const colorEl = document.getElementById("tagColor");
+  if (colorEl) colorEl.value = "#667eea";
+}
+
+async function createTag() {
+  const name = (document.getElementById("tagName")?.value || "").trim();
+  const group = (document.getElementById("tagGroup")?.value || "").trim();
+  const scope = document.getElementById("tagScope")?.value || "all";
+  const color = document.getElementById("tagColor")?.value || "#667eea";
+  const description = (document.getElementById("tagDescription")?.value || "").trim();
+  if (!name) { alert("Tag name is required."); return; }
+  try {
+    await apiFetch("/api/v2/tags", {
+      method: "POST",
+      body: JSON.stringify({ name, group_name: group, scope, color, description }),
+    });
+    hideCreateTagForm();
+    await loadTags();
+  } catch (err) {
+    alert("Create tag failed: " + err.message);
+  }
+}
+
+async function deleteTag(tagId) {
+  if (!confirm("Delete this tag? All assignments will also be removed.")) return;
+  try {
+    await apiFetch(`/api/v2/tags/${tagId}`, { method: "DELETE" });
+    await loadTags();
+  } catch (err) {
+    alert("Delete failed: " + err.message);
+  }
+}
+
+// Load tags for a table-row cell (inline, non-blocking)
+async function loadEntityTagsInline(entityType, entityId, containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  try {
+    const data = await apiFetch(`/api/v2/tags/entity/${entityType}/${entityId}`);
+    const tags = data.tags || data || [];
+    el.innerHTML = tags.map((t) =>
+      `<span class="tag-badge" style="background:${escHtml(t.color || "#667eea")}" title="${escHtml(t.description || t.name)}">${escHtml(t.name)}</span>`
+    ).join("");
+  } catch (err) {
+    el.innerHTML = "";
+  }
+}
+
+// Load tags for the script modal (with remove buttons)
+async function loadEntityTagsInModal(entityType, entityId, containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = "<span class='admin-hint'>Loading...</span>";
+  try {
+    const data = await apiFetch(`/api/v2/tags/entity/${entityType}/${entityId}`);
+    const tags = data.tags || data || [];
+    if (!tags.length) {
+      el.innerHTML = "<span class='admin-hint'>No tags assigned.</span>";
+    } else {
+      el.innerHTML = tags.map((t) =>
+        `<span class="tag-badge" style="background:${escHtml(t.color || "#667eea")}">
+          ${escHtml(t.name)}
+          <span class="tag-x" onclick="removeEntityTag('${escHtml(entityType)}','${escHtml(entityId)}','${escHtml(t.id)}','${escHtml(containerId)}')" title="Remove">x</span>
+        </span>`
+      ).join("");
+    }
+  } catch (err) {
+    el.innerHTML = "<span class='admin-hint'>[ERROR] Could not load tags.</span>";
+  }
+}
+
+async function removeEntityTag(entityType, entityId, tagId, containerId) {
+  try {
+    await apiFetch(`/api/v2/tags/entity/${entityType}/${entityId}/${tagId}`, { method: "DELETE" });
+    loadEntityTagsInModal(entityType, entityId, containerId);
+    // Also refresh inline row if on scripts page
+    loadEntityTagsInline(entityType, entityId, `tags-${entityType}-${entityId}`);
+  } catch (err) {
+    alert("Remove tag failed: " + err.message);
+  }
+}
+
+// Tag picker modal
+function openTagPicker(entityType, entityId) {
+  if (!entityId) return;
+  _tagPickerContext = { entityType, entityId };
+  document.getElementById("tagPickerSearch").value = "";
+  _renderTagPickerList(entityType, entityId);
+  document.getElementById("tagPickerModal").classList.remove("hidden");
+}
+
+function closeTagPicker() {
+  document.getElementById("tagPickerModal").classList.add("hidden");
+  // Refresh modal tags if open
+  if (_currentScriptId) {
+    loadEntityTagsInModal("script", _currentScriptId, "sm-tags-container");
+    loadEntityTagsInline("script", _currentScriptId, `tags-script-${_currentScriptId}`);
+  }
+}
+
+async function _renderTagPickerList(entityType, entityId, filter) {
+  const listEl = document.getElementById("tagPickerList");
+  listEl.innerHTML = "<span class='admin-hint'>Loading...</span>";
+  try {
+    const [allData, assigned] = await Promise.all([
+      apiFetch("/api/v2/tags"),
+      apiFetch(`/api/v2/tags/entity/${entityType}/${entityId}`),
+    ]);
+    const all = allData.tags || allData || [];
+    const assignedIds = new Set((assigned.tags || assigned || []).map((t) => String(t.id)));
+    const q = (filter || "").toLowerCase();
+    const filtered = q ? all.filter((t) => t.name.toLowerCase().includes(q) || (t.group_name || "").toLowerCase().includes(q)) : all;
+    if (!filtered.length) {
+      listEl.innerHTML = "<span class='admin-hint'>No tags available. Create them in Admin.</span>";
+      return;
+    }
+    listEl.innerHTML = filtered.map((t) => {
+      const isAssigned = assignedIds.has(String(t.id));
+      return `<span class="tag-item ${isAssigned ? "assigned" : ""}"
+        onclick="toggleTagAssignment('${escHtml(entityType)}','${escHtml(entityId)}','${escHtml(t.id)}',${!isAssigned})"
+        style="border-color:${isAssigned ? escHtml(t.color || "#667eea") : ""}">
+        <span style="width:10px;height:10px;border-radius:50%;background:${escHtml(t.color || "#667eea")};display:inline-block"></span>
+        ${escHtml(t.name)}${t.group_name ? ` <span style="opacity:.5;font-size:11px">${escHtml(t.group_name)}</span>` : ""}
+      </span>`;
+    }).join("");
+  } catch (err) {
+    listEl.innerHTML = `<span class='admin-hint'>[ERROR] ${escHtml(err.message)}</span>`;
+  }
+}
+
+function filterTagPicker() {
+  const q = document.getElementById("tagPickerSearch").value;
+  _renderTagPickerList(_tagPickerContext.entityType, _tagPickerContext.entityId, q);
+}
+
+async function toggleTagAssignment(entityType, entityId, tagId, assign) {
+  try {
+    if (assign) {
+      await apiFetch(`/api/v2/tags/entity/${entityType}/${entityId}`, {
+        method: "POST",
+        body: JSON.stringify({ tag_id: tagId }),
+      });
+    } else {
+      await apiFetch(`/api/v2/tags/entity/${entityType}/${entityId}/${tagId}`, { method: "DELETE" });
+    }
+    _renderTagPickerList(entityType, entityId, document.getElementById("tagPickerSearch").value);
+  } catch (err) {
+    alert("Tag assignment failed: " + err.message);
+  }
+}
+
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 
