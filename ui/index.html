@@ -35,6 +35,9 @@
         <li class="nav-item" data-page="campaigns">
           <span class="nav-icon">[P]</span> Campaigns
         </li>
+        <li class="nav-item" data-page="tags">
+          <span class="nav-icon">[G]</span> Tags
+        </li>
         <li class="nav-item" data-page="admin">
           <span class="nav-icon">[*]</span> Admin
         </li>
@@ -241,6 +244,54 @@
       </div>
 
       <!-- Admin page -->
+      <!-- ── Tags page ── -->
+      <div id="page-tags" class="page">
+        <div class="page-header">
+          <h1>Tags</h1>
+          <button class="btn btn-primary" onclick="showCreateTagForm()">+ New Tag</button>
+        </div>
+        <div class="card">
+          <div class="card-body">
+            <div id="createTagForm" class="create-tag-form hidden">
+              <div class="form-row">
+                <div class="form-group" style="flex:2;min-width:140px">
+                  <label>Tag name *</label>
+                  <input type="text" id="tagName" class="search-input" placeholder="e.g. critical" />
+                </div>
+                <div class="form-group" style="flex:2;min-width:140px">
+                  <label>Group</label>
+                  <input type="text" id="tagGroup" class="search-input" placeholder="e.g. priority" />
+                </div>
+                <div class="form-group" style="flex:2;min-width:140px">
+                  <label>Scope</label>
+                  <select id="tagScope" class="select-input">
+                    <option value="all">All entities</option>
+                    <option value="agent">Agent only</option>
+                    <option value="script">Script only</option>
+                    <option value="chain">Chain only</option>
+                    <option value="test">Test only</option>
+                    <option value="campaign">Campaign only</option>
+                  </select>
+                </div>
+                <div class="form-group" style="flex:0">
+                  <label>Color</label>
+                  <input type="color" id="tagColor" value="#667eea" title="Tag color" style="width:46px;height:34px;border:none;background:none;cursor:pointer;padding:0" />
+                </div>
+              </div>
+              <div class="form-row" style="margin-top:.6rem">
+                <input type="text" id="tagDescription" class="search-input" style="flex:1" placeholder="Description (optional)" />
+                <button class="btn btn-primary" onclick="createTag()">Create</button>
+                <button class="btn btn-secondary" onclick="hideCreateTagForm()">Cancel</button>
+              </div>
+            </div>
+            <table class="data-table" id="tagsTable" style="margin-top:.75rem">
+              <thead><tr><th>Name</th><th>Group</th><th>Scope</th><th>Description</th><th>Usage</th><th></th></tr></thead>
+              <tbody id="tagsTableBody"><tr><td colspan="6" class="empty-row">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <div id="page-admin" class="page">
         <div class="page-header">
           <h1>Admin</h1>
@@ -303,41 +354,6 @@
           </div>
         </div>
 
-        <!-- Tags management -->
-        <div class="card" style="margin-top:1rem">
-          <div class="card-header">
-            <h2>Tags</h2>
-            <div class="header-actions">
-              <button class="btn btn-primary" onclick="showCreateTagForm()">+ New Tag</button>
-            </div>
-          </div>
-          <div class="card-body">
-            <div id="createTagForm" class="create-tag-form hidden">
-              <div class="form-row">
-                <input type="text" id="tagName" class="search-input" placeholder="Tag name *" />
-                <input type="text" id="tagGroup" class="search-input" placeholder="Group (default: general)" />
-                <select id="tagScope" class="select-input">
-                  <option value="all">All entities</option>
-                  <option value="agent">Agent only</option>
-                  <option value="script">Script only</option>
-                  <option value="chain">Chain only</option>
-                  <option value="test">Test only</option>
-                  <option value="campaign">Campaign only</option>
-                </select>
-                <input type="color" id="tagColor" value="#667eea" title="Tag color" style="width:40px;height:33px;border:none;background:none;cursor:pointer" />
-              </div>
-              <div class="form-row" style="margin-top:.5rem">
-                <input type="text" id="tagDescription" class="search-input" style="flex:1" placeholder="Description (optional)" />
-                <button class="btn btn-primary" onclick="createTag()">Create</button>
-                <button class="btn btn-secondary" onclick="hideCreateTagForm()">Cancel</button>
-              </div>
-            </div>
-            <table class="data-table" id="tagsTable" style="margin-top:.5rem">
-              <thead><tr><th>Name</th><th>Group</th><th>Scope</th><th>Description</th><th>Usage</th><th></th></tr></thead>
-              <tbody id="tagsTableBody"><tr><td colspan="6" class="empty-row">Loading...</td></tr></tbody>
-            </table>
-          </div>
-        </div>
       </div>
 
     </main>

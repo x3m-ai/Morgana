@@ -36,7 +36,8 @@ function navigateTo(page) {
     case "agents":    loadAgents(); break;
     case "scripts":   loadScripts(); break;
     case "tests":     loadTests(); break;
-    case "admin":     loadAdminStatus(); loadTags(); break;
+    case "tags":      loadTags(); break;
+    case "admin":     loadAdminStatus(); break;
   }
 }
 

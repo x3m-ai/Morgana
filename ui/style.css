@@ -529,6 +529,10 @@ body {
   width: 100%;
 }
 .select-input:focus { outline: none; border-color: var(--accent); }
+.select-input option {
+  background: #2c2c2c;
+  color: #fff;
+}
 
 /* Open-row button in tables */
 .btn-open {
