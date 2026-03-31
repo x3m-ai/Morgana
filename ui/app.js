@@ -165,6 +165,7 @@ async function loadAgents() {
         <td>${fmtDate(a.last_seen)}</td>
         <td>${a.beacon_interval || 30}s</td>
         <td>${a.tags ? escHtml(a.tags) : "-"}</td>
+        <td><button class="btn btn-danger btn-sm" onclick="deleteAgent('${escHtml(a.paw)}')" title="Remove agent">x</button></td>
       </tr>`;
     }).join("");
   } catch (err) {
@@ -192,6 +193,27 @@ async function saveAgentAlias(paw) {
     await loadAgents();
   } catch (err) {
     alert("Rename failed: " + err.message);
+  }
+}
+
+async function deleteAgent(paw) {
+  if (!confirm(`Remove agent ${paw} from the database?`)) return;
+  try {
+    await apiFetch(`/api/v2/agents/${paw}`, { method: "DELETE" });
+    await loadAgents();
+  } catch (err) {
+    alert("Delete failed: " + err.message);
+  }
+}
+
+async function purgeStaleAgents() {
+  if (!confirm("Delete all agents not seen in the last 24 hours?")) return;
+  try {
+    const result = await apiFetch("/api/v2/agents?older_than_hours=24", { method: "DELETE" });
+    alert(`Purged ${result.purged} stale agent(s).`);
+    await loadAgents();
+  } catch (err) {
+    alert("Purge failed: " + err.message);
   }
 }
 
@@ -498,7 +520,9 @@ async function _loadAgentOptions() {
     const list = agents.agents || agents || [];
     sel.innerHTML = `<option value="">Select agent...</option>` +
       list.map((a) => {
-        const label = a.alias ? `${a.alias}  (${a.host || a.paw})` : (a.host || a.hostname || a.paw);
+        const host = a.host || a.hostname || "";
+        let label = a.alias ? `${a.alias}  (${host})` : host;
+        label += `  [${a.paw}]`;
         return `<option value="${escHtml(a.paw)}">${escHtml(label)}</option>`;
       }).join("");
   } catch (err) {

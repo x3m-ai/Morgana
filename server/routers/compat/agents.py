@@ -1,7 +1,8 @@
 """Caldera-compatible GET /api/v2/agents endpoint for Merlino compatibility."""
 
+from datetime import datetime, timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from config import settings
@@ -45,3 +46,31 @@ async def patch_agent(paw: str, body: AgentPatch, db: Session = Depends(get_db),
         agent.alias = body.alias.strip() or None
     db.commit()
     return {"paw": agent.paw, "alias": agent.alias or ""}
+
+
+@router.delete("/agents/{paw}")
+async def delete_agent(paw: str, db: Session = Depends(get_db), _: None = Depends(_require_api_key)):
+    agent = db.query(Agent).filter(Agent.paw == paw).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    db.delete(agent)
+    db.commit()
+    return {"deleted": paw}
+
+
+@router.delete("/agents")
+async def purge_stale_agents(
+    older_than_hours: int = Query(default=24, ge=1),
+    db: Session = Depends(get_db),
+    _: None = Depends(_require_api_key)
+):
+    """Delete agents whose last_seen is older than `older_than_hours` hours."""
+    cutoff = datetime.utcnow() - timedelta(hours=older_than_hours)
+    stale = db.query(Agent).filter(
+        (Agent.last_seen < cutoff) | (Agent.last_seen == None)  # noqa: E711
+    ).all()
+    paws = [a.paw for a in stale]
+    for a in stale:
+        db.delete(a)
+    db.commit()
+    return {"purged": len(paws), "paws": paws}
