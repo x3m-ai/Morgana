@@ -31,9 +31,27 @@ Base = declarative_base()
 
 
 def init_db():
-    """Create all tables."""
+    """Create all tables and apply lightweight migrations."""
     from models import script, chain, agent, test, campaign, job, tag  # noqa: F401 - import to register models
     Base.metadata.create_all(bind=engine)
+    _migrate()
+
+
+def _migrate():
+    """Add new nullable columns to existing tables (idempotent)."""
+    migrations = [
+        ("agents", "alias", "TEXT"),
+    ]
+    with engine.connect() as conn:
+        for table, col, col_type in migrations:
+            try:
+                result = conn.execute(__import__("sqlalchemy").text(f"PRAGMA table_info({table})"))
+                existing = [row[1] for row in result.fetchall()]
+                if col not in existing:
+                    conn.execute(__import__("sqlalchemy").text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+                    conn.commit()
+            except Exception as exc:
+                print(f"[WARN] Migration {table}.{col}: {exc}")
 
 
 def get_db():

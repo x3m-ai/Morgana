@@ -547,6 +547,36 @@ body {
 }
 .btn-open:hover { opacity: .85; }
 
+/* Inline alias rename */
+.agent-alias {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.agent-alias-edit {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 13px;
+  width: 130px;
+}
+.agent-alias-unset {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 12px;
+}
+.rename-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 2px;
+  vertical-align: middle;
+}
+.rename-btn:hover { color: var(--accent); }
+
 /* Small btn variant */
 .btn-sm { padding: 3px 10px; font-size: 12px; }
 

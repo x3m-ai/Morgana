@@ -128,13 +128,17 @@ function renderAgentsGrid(agents) {
     grid.innerHTML = `<div class="empty-state">No agents registered yet. Deploy an agent to get started.</div>`;
     return;
   }
-  grid.innerHTML = agents.map((a) => `
+  grid.innerHTML = agents.map((a) => {
+    const label = a.alias || a.host || a.hostname || "unknown";
+    const sub = a.alias ? (a.host || a.hostname || "") : "";
+    return `
     <div class="agent-chip">
-      <div class="agent-chip-hostname">${escHtml(a.host || a.hostname || "unknown")}</div>
+      <div class="agent-chip-hostname">${escHtml(label)}</div>
+      ${sub ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">${escHtml(sub)}</div>` : ""}
       <div class="agent-chip-meta">${escHtml(a.platform || "?")} &bull; PAW: ${escHtml(a.paw)}</div>
       ${stateBadge(a.status)}
-    </div>
-  `).join("");
+    </div>`;
+  }).join("");
 }
 
 // ─── Agents ──────────────────────────────────────────────────────────────────
@@ -147,20 +151,47 @@ async function loadAgents() {
       tbody.innerHTML = `<tr><td colspan="8" class="empty-row">No agents registered</td></tr>`;
       return;
     }
-    tbody.innerHTML = agents.map((a) => `
-      <tr>
-        <td><code>${escHtml(a.paw)}</code></td>
-        <td>${escHtml(a.host || a.hostname || "?")}</td>
+    tbody.innerHTML = agents.map((a) => {
+      const nameCell = a.alias
+        ? `<span class="agent-alias" id="alias-label-${escHtml(a.paw)}">${escHtml(a.alias)}</span> <button class="rename-btn" onclick="startRenameAgent('${escHtml(a.paw)}','${escHtml(a.alias)}')" title="Rename">[edit]</button>`
+        : `<span class="agent-alias-unset" id="alias-label-${escHtml(a.paw)}">${escHtml(a.host || a.hostname || "?")}</span> <button class="rename-btn" onclick="startRenameAgent('${escHtml(a.paw)}','')" title="Set name">[name]</button>`;
+      return `
+      <tr id="agent-row-${escHtml(a.paw)}">
+        <td>${nameCell}</td>
+        <td><code style="font-size:11px">${escHtml(a.host || a.hostname || "?")} <span style="color:var(--text-muted)">${escHtml(a.paw)}</span></code></td>
         <td>${escHtml(a.platform || "?")}</td>
         <td>${escHtml(a.os_version || "-")}</td>
         <td>${stateBadge(a.status)}</td>
         <td>${fmtDate(a.last_seen)}</td>
         <td>${a.beacon_interval || 30}s</td>
         <td>${a.tags ? escHtml(a.tags) : "-"}</td>
-      </tr>
-    `).join("");
+      </tr>`;
+    }).join("");
   } catch (err) {
     console.error("[AGENTS] Load failed:", err.message);
+  }
+}
+
+function startRenameAgent(paw, currentAlias) {
+  const cell = document.querySelector(`#agent-row-${paw} td:first-child`);
+  if (!cell) return;
+  cell.innerHTML = `
+    <input class="agent-alias-edit" id="rename-input-${escHtml(paw)}" value="${escHtml(currentAlias)}" placeholder="Enter name..." />
+    <button class="btn btn-primary btn-sm" style="margin-left:4px" onclick="saveAgentAlias('${escHtml(paw)}')">OK</button>
+    <button class="btn btn-secondary btn-sm" style="margin-left:2px" onclick="loadAgents()">x</button>
+  `;
+  const inp = document.getElementById(`rename-input-${paw}`);
+  if (inp) { inp.focus(); inp.select(); inp.addEventListener("keydown", (e) => { if (e.key === "Enter") saveAgentAlias(paw); if (e.key === "Escape") loadAgents(); }); }
+}
+
+async function saveAgentAlias(paw) {
+  const inp = document.getElementById(`rename-input-${paw}`);
+  const alias = inp ? inp.value.trim() : "";
+  try {
+    await apiFetch(`/api/v2/agents/${paw}`, { method: "PATCH", body: JSON.stringify({ alias }) });
+    await loadAgents();
+  } catch (err) {
+    alert("Rename failed: " + err.message);
   }
 }
 
@@ -466,7 +497,10 @@ async function _loadAgentOptions() {
     const agents = await apiFetch("/api/v2/agents");
     const list = agents.agents || agents || [];
     sel.innerHTML = `<option value="">Select agent...</option>` +
-      list.map((a) => `<option value="${escHtml(a.paw)}">${escHtml(a.hostname || a.paw)} (${escHtml(a.paw)})</option>`).join("");
+      list.map((a) => {
+        const label = a.alias ? `${a.alias}  (${a.host || a.paw})` : (a.host || a.hostname || a.paw);
+        return `<option value="${escHtml(a.paw)}">${escHtml(label)}</option>`;
+      }).join("");
   } catch (err) {
     sel.innerHTML = `<option value="">Could not load agents</option>`;
   }

@@ -25,3 +25,4 @@ class Agent(Base):
     enrolled_at = Column(DateTime, default=datetime.utcnow)
     enrolled_by = Column(String)                # deploy_token hash used
     tags = Column(String)                       # JSON array
+    alias = Column(String, nullable=True)       # operator-assigned human name
