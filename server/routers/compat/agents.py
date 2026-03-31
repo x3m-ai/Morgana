@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from config import settings
 from database import get_db
 from models.agent import Agent
+from models.test import Test
+from models.job import Job
 
 router = APIRouter()
 
@@ -53,6 +55,9 @@ async def delete_agent(paw: str, db: Session = Depends(get_db), _: None = Depend
     agent = db.query(Agent).filter(Agent.paw == paw).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
+    # Remove dependent rows first (FK without CASCADE)
+    db.query(Job).filter(Job.agent_id == agent.id).delete(synchronize_session=False)
+    db.query(Test).filter(Test.agent_id == agent.id).delete(synchronize_session=False)
     db.delete(agent)
     db.commit()
     return {"deleted": paw}
@@ -71,6 +76,8 @@ async def purge_stale_agents(
     ).all()
     paws = [a.paw for a in stale]
     for a in stale:
+        db.query(Job).filter(Job.agent_id == a.id).delete(synchronize_session=False)
+        db.query(Test).filter(Test.agent_id == a.id).delete(synchronize_session=False)
         db.delete(a)
     db.commit()
     return {"purged": len(paws), "paws": paws}
