@@ -194,8 +194,9 @@ func shellConfig() (shell string, args []string, workDir string) {
 	switch runtime.GOOS {
 	case "windows":
 		workDir = `C:\merlino`
-		// cmd.exe reads from stdin when piped; no extra flags needed
-		return "cmd.exe", []string{}, workDir
+		// /Q disables cmd.exe's own echo of commands received via stdin pipe.
+		// Without /Q, cmd.exe echoes each line back -> operator sees every char twice.
+		return "cmd.exe", []string{"/Q"}, workDir
 	case "darwin":
 		workDir = "/merlino"
 		if _, err := os.Stat("/bin/bash"); err == nil {
