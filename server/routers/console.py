@@ -225,9 +225,9 @@ async def open_native_console(
                             $history.Add($curLine)
                         }}
                         $histIdx = -1
-                        $toSend  = $curLine
                         $curLine = ''
-                        $bytes = $enc.GetBytes("$toSend`r`n")
+                        # Send only \r\n - the chars were already sent one by one
+                        $bytes = $enc.GetBytes("`r`n")
 
                     }} elseif ($key.Key -eq [System.ConsoleKey]::Backspace) {{
                         if ($curLine.Length -gt 0) {{
