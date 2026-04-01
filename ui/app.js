@@ -51,10 +51,10 @@ async function checkHealth() {
     if (resp.ok) {
       const data = await resp.json();
       dot.className = "status-dot online";
-      label.innerHTML = `<span class="status-dot online"></span> Server v${data.version || "?"}`;
+      label.innerHTML = `<span class="status-dot online"></span> Portal v${data.version || "?"}`;
     } else {
       dot.className = "status-dot offline";
-      label.innerHTML = `<span class="status-dot offline"></span> Server error`;
+      label.innerHTML = `<span class="status-dot offline">e"></span> Server error`;
     }
   } catch {
     const label = document.getElementById("serverStatus");
@@ -148,7 +148,7 @@ async function loadAgents() {
     const agents = await apiFetch("/api/v2/agents");
     const tbody = document.getElementById("agentsTableBody");
     if (!agents.length) {
-      tbody.innerHTML = `<tr><td colspan="10" class="empty-row">No agents registered</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="11" class="empty-row">No agents registered</td></tr>`;
       return;
     }
     tbody.innerHTML = agents.map((a) => {
@@ -165,6 +165,7 @@ async function loadAgents() {
         <td>${fmtDate(a.last_seen)}</td>
         <td>${a.beacon_interval || 30}s</td>
         <td>${a.tags ? escHtml(a.tags) : "-"}</td>
+        <td><span class="version-badge" title="Agent version">${escHtml(a.agent_version || "?")}</span></td>
         <td><button class="btn btn-secondary btn-sm" onclick="openConsole('${escHtml(a.paw)}', '${escHtml(a.alias || a.host || a.hostname || a.paw)}')" title="Open interactive console">Console</button></td>
         <td><button class="btn btn-danger btn-sm" onclick="deleteAgent('${escHtml(a.paw)}')" title="Remove agent">x</button></td>
       </tr>`;

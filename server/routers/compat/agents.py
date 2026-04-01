@@ -36,6 +36,7 @@ async def list_agents(db: Session = Depends(get_db), _: None = Depends(_require_
         "status": a.status,
         "beacon_interval": a.beacon_interval,
         "tags": a.tags or "",
+        "agent_version": a.agent_version or "",
     } for a in agents]
 
 

@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 
 	"github.com/x3m-ai/morgana-agent/internal/config"
+	"github.com/x3m-ai/morgana-agent/internal/version"
 )
 
 // Manager is the interface for OS-specific service management.
@@ -29,7 +30,7 @@ func RegisterWithServer(serverURL, deployToken, hostname, platform, arch, osVers
 		"platform":     platform,
 		"architecture": arch,
 		"os_version":   osVersion,
-		"agent_version": "0.1.0",
+		"agent_version": version.Agent,
 	}
 
 	data, err := json.Marshal(payload)

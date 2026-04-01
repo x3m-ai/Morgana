@@ -15,6 +15,7 @@ class HeartbeatRequest(BaseModel):
     paw: str
     status: Optional[str] = "idle"
     ip_address: Optional[str] = None
+    agent_version: Optional[str] = None
 
 
 @router.post("/heartbeat")
@@ -25,5 +26,7 @@ async def heartbeat(body: HeartbeatRequest, db: Session = Depends(get_db)):
         ag.status = body.status or "idle"
         if body.ip_address:
             ag.ip_address = body.ip_address
+        if body.agent_version:
+            ag.agent_version = body.agent_version
         db.commit()
     return {"ack": True, "beacon_interval": ag.beacon_interval if ag else 30}

@@ -17,12 +17,12 @@ import (
 	"github.com/x3m-ai/morgana-agent/internal/config"
 	"github.com/x3m-ai/morgana-agent/internal/logger"
 	"github.com/x3m-ai/morgana-agent/internal/service"
+	"github.com/x3m-ai/morgana-agent/internal/version"
 )
 
 const (
-	AgentVersion = "0.1.0"
-	ServiceName  = "MorganaAgent"
-	ServiceDesc  = "Morgana Red Team Agent - X3M.AI Purple Team Platform"
+	ServiceName = "MorganaAgent"
+	ServiceDesc = "Morgana Red Team Agent - X3M.AI Purple Team Platform"
 )
 
 func main() {
@@ -43,7 +43,7 @@ func main() {
 	case "status":
 		handleStatus(log)
 	case "version":
-		fmt.Printf("Morgana Agent v%s (%s/%s)\n", AgentVersion, runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("Morgana Agent v%s (%s/%s)\n", version.Agent, runtime.GOOS, runtime.GOARCH)
 	default:
 		printUsage()
 		os.Exit(1)
@@ -66,7 +66,7 @@ func handleInstall(log *logger.Logger) {
 		"server":   *serverURL,
 		"interval": *interval,
 		"platform": runtime.GOOS,
-		"version":  AgentVersion,
+		"version":  version.Agent,
 	})
 
 	svc := service.New(ServiceName, ServiceDesc)
@@ -154,7 +154,7 @@ func handleRun(log *logger.Logger) {
 		"paw":      cfg.PAW,
 		"server":   cfg.ServerURL,
 		"interval": cfg.BeaconInterval,
-		"version":  AgentVersion,
+		"version":  version.Agent,
 	})
 
 	svc := service.New(ServiceName, ServiceDesc)
@@ -203,5 +203,5 @@ EXAMPLES:
   morgana-agent run --server http://localhost:8888 --token MORGANA_ADMIN_KEY
   morgana-agent uninstall --purge
   morgana-agent status
-`, AgentVersion)
+`, version.Agent)
 }

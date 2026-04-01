@@ -10,7 +10,7 @@ BASE_DIR = Path(__file__).parent
 
 
 class Settings:
-    version: str = "0.1.0"
+    version: str = "0.2.0"
 
     # Server
     host: str = os.getenv("MORGANA_HOST", "0.0.0.0")

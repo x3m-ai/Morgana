@@ -18,6 +18,7 @@ import (
 	"github.com/x3m-ai/morgana-agent/internal/console"
 	"github.com/x3m-ai/morgana-agent/internal/executor"
 	"github.com/x3m-ai/morgana-agent/internal/logger"
+	"github.com/x3m-ai/morgana-agent/internal/version"
 )
 
 // Job represents a job dispatched from the server to this agent.
@@ -288,8 +289,9 @@ func (b *Beacon) reportResult(jobID string, exitCode int, stdout, stderr string,
 
 func (b *Beacon) sendHeartbeat() {
 	payload := map[string]any{
-		"paw":    b.cfg.PAW,
-		"status": "idle",
+		"paw":           b.cfg.PAW,
+		"status":        "idle",
+		"agent_version": version.Agent,
 	}
 	data, _ := json.Marshal(payload)
 	url := fmt.Sprintf("%s/api/v2/agent/heartbeat", b.cfg.ServerURL)
