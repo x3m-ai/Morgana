@@ -3,15 +3,19 @@
 Browser side:  WS /api/v2/console/ws/{paw}?key={api_key}
 Agent side:    WS /api/v2/console/agent/{paw}   (Authorization: Bearer {token})
 Native launch: POST /api/v2/console/native/{paw}?key={api_key}
-               -> spawns a real cmd.exe/bash window on the server machine
-                  bridged to the agent via local_console_bridge.py
+               -> opens a TCP relay on localhost, then spawns a PowerShell
+                  window that connects TCP and uses Console.ReadKey($true)
+                  for bulletproof raw keyboard input.
 """
 
 import asyncio
 import hashlib
 import logging
+import socket
 import subprocess
 import sys
+import tempfile
+import textwrap
 from pathlib import Path
 from typing import Optional
 
@@ -25,8 +29,6 @@ from models.agent import Agent
 
 log = logging.getLogger("morgana.console")
 router = APIRouter()
-
-_BRIDGE_SCRIPT = Path(__file__).parent.parent / "core" / "local_console_bridge.py"
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +69,73 @@ async def reset_session(
 
 
 # ---------------------------------------------------------------------------
-# Native console (opens real cmd.exe / bash window on operator machine)
+# TCP relay: bridges one TCP socket to the WS console broker (/ws/{paw})
+# ---------------------------------------------------------------------------
+
+def _free_port() -> int:
+    """Pick a random free TCP port on localhost."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+async def _tcp_relay(port: int, ws_url: str) -> None:
+    """Accept one TCP connection and bridge it bidirectionally to ws_url."""
+    import ssl as _ssl
+    import websockets
+
+    ssl_ctx = None
+    if ws_url.startswith("wss://"):
+        ssl_ctx = _ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = _ssl.CERT_NONE
+
+    async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        try:
+            async with websockets.connect(ws_url, ssl=ssl_ctx) as ws:
+
+                async def tcp_to_ws():
+                    while True:
+                        data = await reader.read(4096)
+                        if not data:
+                            break
+                        await ws.send(data.decode("utf-8", errors="replace"))
+
+                async def ws_to_tcp():
+                    async for msg in ws:
+                        b = msg.encode("utf-8") if isinstance(msg, str) else msg
+                        writer.write(b)
+                        await writer.drain()
+
+                done, pending = await asyncio.wait(
+                    [asyncio.ensure_future(tcp_to_ws()),
+                     asyncio.ensure_future(ws_to_tcp())],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for t in pending:
+                    t.cancel()
+        except Exception as exc:
+            log.debug("[CONSOLE] TCP relay error: %s", exc)
+        finally:
+            try:
+                writer.close()
+            except Exception:
+                pass
+
+    server = await asyncio.start_server(_handle, "127.0.0.1", port)
+    log.info("[CONSOLE] TCP relay listening on 127.0.0.1:%d", port)
+    asyncio.ensure_future(_relay_lifetime(server))
+
+
+async def _relay_lifetime(server: asyncio.Server) -> None:
+    """Close the TCP relay server after 10 minutes (safety cleanup)."""
+    await asyncio.sleep(600)
+    server.close()
+    log.debug("[CONSOLE] TCP relay expired and closed")
+
+
+# ---------------------------------------------------------------------------
+# Native console (opens real PowerShell window on operator machine)
 # ---------------------------------------------------------------------------
 
 @router.post("/native/{paw}")
@@ -76,11 +144,12 @@ async def open_native_console(
     key: str = Query(default=""),
     db: Session = Depends(get_db),
 ):
-    """Spawn a real terminal window on the server machine connected to this agent.
+    """Spawn a real PowerShell terminal window connected to this agent.
 
-    The server launches local_console_bridge.py in a new cmd.exe window.
-    The bridge connects to /api/v2/console/ws/{paw} as a WebSocket client and
-    relays raw stdin/stdout, giving the operator a true interactive shell.
+    Architecture:
+      1. Server creates a TCP relay on a random localhost port.
+      2. The TCP relay bridges the PowerShell window to /ws/{paw}.
+      3. PowerShell uses Console.ReadKey($true) for raw input - bulletproof.
     """
     if key != settings.api_key:
         raise HTTPException(status_code=403, detail="Unauthorized")
@@ -98,32 +167,88 @@ async def open_native_console(
     ag = db.query(Agent).filter(Agent.paw == paw).first()
     hostname = (ag.hostname if ag else None) or paw
 
+    # Start TCP relay
+    port = _free_port()
     ws_scheme = "wss" if settings.ssl_enabled else "ws"
     ws_url = f"{ws_scheme}://localhost:{settings.port}/api/v2/console/ws/{paw}?key={settings.api_key}"
-    python = sys.executable
-    bridge = str(_BRIDGE_SCRIPT)
+    await _tcp_relay(port, ws_url)
 
     if sys.platform == "win32":
-        # Spawn Python directly in a new console window.
-        # Avoids all cmd.exe /k quoting issues with URLs containing ?key=...
-        # The bridge script sets its own window title via os.system('title ...').
+        # PowerShell script: TCP connect + Console.ReadKey($true) for keyboard
+        ps_script = textwrap.dedent(f"""\
+            $host.UI.RawUI.WindowTitle = 'Morgana - {hostname}'
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $tcp.Connect('127.0.0.1', {port})
+            $stream = $tcp.GetStream()
+            $enc = [System.Text.Encoding]::UTF8
+
+            # Recv thread (server output -> console)
+            $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+            $rs  = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace($iss)
+            $rs.Open()
+            $rs.SessionStateProxy.SetVariable('stream', $stream)
+            $rs.SessionStateProxy.SetVariable('enc', $enc)
+            $ps2 = [System.Management.Automation.PowerShell]::Create()
+            $ps2.Runspace = $rs
+            [void]$ps2.AddScript({{
+                $buf = New-Object byte[] 4096
+                while ($true) {{
+                    try {{
+                        $n = $stream.Read($buf, 0, 4096)
+                        if ($n -le 0) {{ break }}
+                        [System.Console]::Write($enc.GetString($buf, 0, $n))
+                    }} catch {{ break }}
+                }}
+            }})
+            [void]$ps2.BeginInvoke()
+
+            # Main thread: raw keyboard -> TCP
+            try {{
+                while ($true) {{
+                    $key = [System.Console]::ReadKey($true)
+                    if ($key.Key -eq [System.ConsoleKey]::Enter) {{
+                        $bytes = $enc.GetBytes("`r`n")
+                    }} else {{
+                        $bytes = $enc.GetBytes([string]$key.KeyChar)
+                    }}
+                    $stream.Write($bytes, 0, $bytes.Length)
+                    $stream.Flush()
+                }}
+            }} catch {{}}
+
+            $tcp.Close()
+            Write-Host ''
+            Write-Host '[MORGANA] Session closed. Press Enter to close...'
+            Read-Host
+        """)
+
+        # Write to temp file (deleted on next OS reboot automatically)
+        tf = tempfile.NamedTemporaryFile(
+            suffix=".ps1", delete=False, mode="w", encoding="utf-8",
+            dir=tempfile.gettempdir()
+        )
+        tf.write(ps_script)
+        tf.close()
+
         subprocess.Popen(
-            [python, str(bridge), ws_url, hostname],
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tf.name],
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
+
     else:
-        # Linux/macOS - try common terminal emulators
+        # Linux/macOS: Python bridge fallback (Console.ReadKey not available)
+        bridge = Path(__file__).parent.parent / "core" / "local_console_bridge.py"
         for term in ("gnome-terminal", "xterm", "konsole"):
             try:
                 subprocess.Popen(
-                    [term, "--", python, bridge, ws_url, hostname],
+                    [term, "--", sys.executable, str(bridge), ws_url, hostname],
                     start_new_session=True,
                 )
                 break
             except FileNotFoundError:
                 continue
 
-    log.info("[CONSOLE] Native terminal launched for agent %s (%s)", paw, hostname)
+    log.info("[CONSOLE] Native terminal launched for agent %s (%s) on TCP port %d", paw, hostname, port)
     return {"ok": True, "paw": paw, "hostname": hostname}
 
 @router.websocket("/ws/{paw}")
