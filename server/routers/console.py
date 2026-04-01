@@ -98,7 +98,8 @@ async def open_native_console(
     ag = db.query(Agent).filter(Agent.paw == paw).first()
     hostname = (ag.hostname if ag else None) or paw
 
-    ws_url = f"wss://localhost:{settings.port}/api/v2/console/ws/{paw}?key={settings.api_key}"
+    ws_scheme = "wss" if settings.ssl_enabled else "ws"
+    ws_url = f"{ws_scheme}://localhost:{settings.port}/api/v2/console/ws/{paw}?key={settings.api_key}"
     python = sys.executable
     bridge = str(_BRIDGE_SCRIPT)
 

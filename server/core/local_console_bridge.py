@@ -87,9 +87,13 @@ async def _send_loop(ws, loop):
 
 
 async def run(ws_url: str, hostname: str):
-    ssl_ctx = ssl.create_default_context()
-    ssl_ctx.check_hostname = False
-    ssl_ctx.verify_mode = ssl.CERT_NONE
+    # Use SSL context only for wss://, plain None for ws://
+    if ws_url.startswith("wss://"):
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+    else:
+        ssl_ctx = None
 
     print(f"\r\n[MORGANA] Connecting to {hostname}...")
     print("[MORGANA] Waiting for agent shell (up to 30s)...\r\n")
