@@ -513,7 +513,7 @@
   </div>
 
   <!-- Console modal (reverse shell) -->
-  <div id="consoleModal" class="modal hidden">
+  <div id="consoleModal" class="modal hidden" onkeydown="_consoleModalKeydown(event)">
     <div class="modal-content modal-console">
       <div class="modal-header">
         <h3>Console - <span id="consoleAgentLabel">Agent</span></h3>

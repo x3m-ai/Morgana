@@ -168,7 +168,7 @@ async function loadAgents() {
         <td><span class="version-badge" title="Agent version">${escHtml(a.agent_version || "?")}</span></td>
         <td style="white-space:nowrap">
           <button class="btn btn-secondary btn-sm" onclick="openConsole('${escHtml(a.paw)}', '${escHtml(a.alias || a.host || a.hostname || a.paw)}')" title="Open interactive console">Console</button>
-          <button class="btn btn-secondary btn-sm reset-btn" onclick="resetConsoleSession('${escHtml(a.paw)}')" title="Reset stale console session">[R]</button>
+          <button class="console-reset-btn" onclick="resetConsoleSession('${escHtml(a.paw)}')" title="Reset stale console session">Reset</button>
         </td>
         <td><button class="btn btn-danger btn-sm" onclick="deleteAgent('${escHtml(a.paw)}')" title="Remove agent">x</button></td>
       </tr>`;
@@ -688,9 +688,13 @@ async function openConsole(paw, label) {
   _consoleTerm.loadAddon(_consoleFitAddon);
   _consoleTerm.open(container);
   _consoleFitAddon.fit();
-  _consoleTerm.focus();
 
-  // Re-focus terminal whenever user clicks anywhere inside the terminal container
+  // Focus the terminal. openConsole() is async so a direct focus() call may be
+  // blocked by the browser (not a user-gesture frame). Use setTimeout to escape
+  // the async chain and get a reliable focus.
+  setTimeout(() => { if (_consoleTerm) _consoleTerm.focus(); }, 50);
+
+  // Re-focus whenever the user clicks anywhere inside the terminal container
   container.addEventListener("mousedown", () => { if (_consoleTerm) _consoleTerm.focus(); });
 
   _consoleTerm.onData((data) => {
@@ -703,8 +707,7 @@ async function openConsole(paw, label) {
 
   _consoleWS.onopen = () => {
     document.getElementById("consoleStatus").textContent = "Connected";
-    // Re-apply focus once the WS is live - browser may have shifted focus during connection
-    if (_consoleTerm) _consoleTerm.focus();
+    setTimeout(() => { if (_consoleTerm) _consoleTerm.focus(); }, 50);
   };
   _consoleWS.onmessage = (evt) => { _consoleTerm.write(evt.data); };
   _consoleWS.onerror = () => { document.getElementById("consoleStatus").textContent = "Error"; _consoleTerm.write("\r\n[ERROR] WebSocket error.\r\n"); };
@@ -715,6 +718,15 @@ async function openConsole(paw, label) {
 
 function _consoleResize() { if (_consoleFitAddon) { try { _consoleFitAddon.fit(); } catch (_) {} } }
 
+// Relay keystrokes that land on the modal backdrop to the terminal.
+// This handles the edge case where the browser gave focus to the backdrop div.
+function _consoleModalKeydown(e) {
+  if (!_consoleTerm) return;
+  // If already inside the xterm textarea just let it pass through
+  if (e.target && e.target.classList && e.target.classList.contains("xterm-helper-textarea")) return;
+  _consoleTerm.focus();
+}
+
 function closeConsole() {
   if (_consoleWS) { _consoleWS.close(); _consoleWS = null; }
   if (_consoleTerm) { _consoleTerm.dispose(); _consoleTerm = null; }
@@ -723,7 +735,17 @@ function closeConsole() {
 }
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !document.getElementById("consoleModal").classList.contains("hidden")) closeConsole();
+  const modal = document.getElementById("consoleModal");
+  if (modal && !modal.classList.contains("hidden")) {
+    if (e.key === "Escape") { closeConsole(); return; }
+    // If focus escaped the terminal (e.g. user clicked modal backdrop), recapture it.
+    // Check active element is not already inside the xterm helper textarea.
+    const active = document.activeElement;
+    const inTerminal = active && (active.classList.contains("xterm-helper-textarea") || modal.contains(active));
+    if (!inTerminal && _consoleTerm) {
+      _consoleTerm.focus();
+    }
+  }
 });
 let _allTags = [];
 let _tagPickerContext = { entityType: null, entityId: null };
