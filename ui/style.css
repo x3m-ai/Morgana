@@ -657,6 +657,14 @@ body {
 .btn-danger:hover { background: #c53030; }
 
 /* ---- Version badge ------------------------------------------------------- */
+.reset-btn {
+  margin-left: 4px;
+  opacity: 0.55;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+.reset-btn:hover { opacity: 1; }
+
 .version-badge {
   font-family: Consolas, monospace;
   font-size: 11px;

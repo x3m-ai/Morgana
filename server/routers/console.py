@@ -15,17 +15,53 @@ import hashlib
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from config import settings
 from core import console_sessions
 from database import get_db
 from models.agent import Agent
-from fastapi import Depends
 
 log = logging.getLogger("morgana.console")
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Reset / cleanup endpoint
+# ---------------------------------------------------------------------------
+
+@router.delete("/session/{paw}")
+async def reset_session(
+    paw: str,
+    key: str = Query(default=""),
+):
+    """Force-close any active or pending console session for this agent.
+
+    Called by the UI Reset button to clean up a stale session before
+    opening a fresh console.
+    """
+    if key != settings.api_key:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    sess = console_sessions.get(paw)
+    if sess:
+        # Signal done so coroutines waiting on done.wait() unblock
+        sess.done.set()
+        # Explicitly close WebSocket connections to speed up cleanup
+        for ws_attr in ("browser_ws", "agent_ws"):
+            ws = getattr(sess, ws_attr, None)
+            if ws is not None:
+                try:
+                    await ws.send_text("\r\n[CONSOLE] Session reset by operator.\r\n")
+                    await ws.close()
+                except Exception:
+                    pass
+        console_sessions.remove(paw)
+        log.info("[CONSOLE] Session force-reset for agent %s", paw)
+        return {"ok": True, "paw": paw, "action": "reset"}
+
+    return {"ok": True, "paw": paw, "action": "no_session"}
 
 
 # ---------------------------------------------------------------------------

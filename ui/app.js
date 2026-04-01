@@ -166,7 +166,10 @@ async function loadAgents() {
         <td>${a.beacon_interval || 30}s</td>
         <td>${a.tags ? escHtml(a.tags) : "-"}</td>
         <td><span class="version-badge" title="Agent version">${escHtml(a.agent_version || "?")}</span></td>
-        <td><button class="btn btn-secondary btn-sm" onclick="openConsole('${escHtml(a.paw)}', '${escHtml(a.alias || a.host || a.hostname || a.paw)}')" title="Open interactive console">Console</button></td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-secondary btn-sm" onclick="openConsole('${escHtml(a.paw)}', '${escHtml(a.alias || a.host || a.hostname || a.paw)}')" title="Open interactive console">Console</button>
+          <button class="btn btn-secondary btn-sm reset-btn" onclick="resetConsoleSession('${escHtml(a.paw)}')" title="Reset stale console session">[R]</button>
+        </td>
         <td><button class="btn btn-danger btn-sm" onclick="deleteAgent('${escHtml(a.paw)}')" title="Remove agent">x</button></td>
       </tr>`;
     }).join("");
@@ -597,7 +600,19 @@ let _consoleWS = null;
 let _consoleTerm = null;
 let _consoleFitAddon = null;
 
-function openConsole(paw, label) {
+async function resetConsoleSession(paw) {
+  try {
+    const r = await fetch(`${API_BASE}/api/v2/console/session/${encodeURIComponent(paw)}?key=${encodeURIComponent(API_KEY)}`, { method: "DELETE" });
+    const j = await r.json();
+    console.log("[CONSOLE] Reset", paw, j.action);
+  } catch (err) {
+    console.warn("[CONSOLE] Reset failed:", err.message);
+  }
+}
+
+async function openConsole(paw, label) {
+  // Auto-reset any stale session before opening a fresh one
+  await resetConsoleSession(paw);
   if (_consoleWS) { _consoleWS.close(); _consoleWS = null; }
   document.getElementById("consoleAgentLabel").textContent = label || paw;
   document.getElementById("consoleStatus").textContent = "Connecting...";
