@@ -50,6 +50,19 @@ def create(paw: str) -> ConsoleSession:
     return sess
 
 
+def get_or_create(paw: str) -> ConsoleSession:
+    """Return the existing session for paw (if any) or create a new one.
+
+    Used by browser_connect so that a session pre-created by open_native_console
+    is not accidentally replaced - the agent may have already connected to it.
+    """
+    sess = _sessions.get(paw)
+    if sess is not None:
+        log.debug("[SESSIONS] Reusing existing session for %s", paw)
+        return sess
+    return create(paw)
+
+
 def get(paw: str) -> Optional[ConsoleSession]:
     return _sessions.get(paw)
 

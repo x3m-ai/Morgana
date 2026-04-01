@@ -141,7 +141,9 @@ async def browser_connect(
     await websocket.accept()
     log.info("[CONSOLE] Browser connected for agent %s", paw)
 
-    sess = console_sessions.create(paw)
+    # Use get_or_create so we don't blow away a session that open_native_console
+    # already created (the agent may have already connected to it).
+    sess = console_sessions.get_or_create(paw)
     sess.browser_ws = websocket
 
     try:
