@@ -1,4 +1,4 @@
-"""Agent router: GET /api/v2/agent/poll - beacon polling endpoint."""
+﻿"""Agent router: GET /api/v2/agent/poll - beacon polling endpoint."""
 
 import hashlib
 import hmac
@@ -16,6 +16,7 @@ from models.agent import Agent
 from models.job import Job
 from models.test import Test
 from core.job_queue import job_queue
+from core import console_sessions
 
 log = logging.getLogger("morgana.router.poll")
 router = APIRouter()
@@ -52,13 +53,21 @@ async def poll(
         ag.status = "idle"
         db.commit()
         log.debug("[POLL] Agent %s: no jobs pending", paw)
-        return {"job": None, "beacon_interval": ag.beacon_interval}
+        return {
+            "job": None,
+            "beacon_interval": ag.beacon_interval,
+            "console_paw": console_sessions.pending_paw(paw),
+        }
 
     job = db.query(Job).filter(Job.id == job_id, Job.status == "pending").first()
     if not job:
         ag.status = "idle"
         db.commit()
-        return {"job": None, "beacon_interval": ag.beacon_interval}
+        return {
+            "job": None,
+            "beacon_interval": ag.beacon_interval,
+            "console_paw": console_sessions.pending_paw(paw),
+        }
 
     job.status = "dispatched"
     job.dispatched_at = datetime.utcnow()
@@ -79,12 +88,18 @@ async def poll(
     if job.input_args:
         try:
             raw = json.loads(job.input_args)
-            input_args = {k: v.get("default") for k, v in raw.items()} if isinstance(raw, dict) and raw else raw
+            input_args = (
+                {k: v.get("default") for k, v in raw.items()}
+                if isinstance(raw, dict) and raw
+                else raw
+            )
         except Exception:
             pass
 
-    log.info("[POLL] Dispatching job %s to agent %s tcode=%s", job.id, paw, test.tcode if test else "?")
-
+    log.info(
+        "[POLL] Dispatching job %s to agent %s tcode=%s",
+        job.id, paw, test.tcode if test else "?",
+    )
     return {
         "job": {
             "id": job.id,
@@ -98,4 +113,5 @@ async def poll(
             "signature": sig,
         },
         "beacon_interval": ag.beacon_interval,
+        "console_paw": console_sessions.pending_paw(paw),
     }

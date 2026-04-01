@@ -6,6 +6,9 @@
   <title>Morgana - Red Team Platform</title>
   <link rel="icon" type="image/png" href="assets/morgana-logo.png" />
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
 </head>
 <body>
   <div class="layout">
@@ -146,10 +149,11 @@
                   <th>Beacon</th>
                   <th>Tags</th>
                   <th></th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="agentsTableBody">
-                <tr><td colspan="9" class="empty-row">Loading...</td></tr>
+                <tr><td colspan="10" class="empty-row">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -447,6 +451,14 @@
             <button class="btn btn-primary" onclick="executeScriptFromModal()">Run Now</button>
             <span id="sm-execute-result" class="admin-hint" style="display:none"></span>
           </div>
+          <!-- Real-time output panel -->
+          <div id="sm-output-section" style="display:none;margin-top:.8rem">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.3rem">
+              <span class="admin-hint" id="sm-output-status"></span>
+              <button class="btn btn-secondary btn-sm" onclick="document.getElementById('sm-output-section').style.display='none'">Hide</button>
+            </div>
+            <pre id="sm-output-pre" class="output-pre"></pre>
+          </div>
         </div>
 
         <div class="modal-divider"></div>
@@ -481,6 +493,20 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeTagPicker()">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Console modal (reverse shell) -->
+  <div id="consoleModal" class="modal hidden">
+    <div class="modal-content modal-console">
+      <div class="modal-header">
+        <h3>Console - <span id="consoleAgentLabel">Agent</span></h3>
+        <span id="consoleStatus" class="admin-hint" style="margin:0 auto 0 1rem"></span>
+        <button class="modal-close" onclick="closeConsole()">x</button>
+      </div>
+      <div class="modal-body" style="padding:0;background:#000">
+        <div id="consoleTerminal" class="console-terminal"></div>
       </div>
     </div>
   </div>

@@ -26,6 +26,8 @@ from routers.agent import poll, register, result, heartbeat
 from routers.scripts import router as scripts_router
 from routers.admin import router as admin_router
 from routers.tags import router as tags_router
+from routers.jobs import router as jobs_router
+from routers.console import router as console_router
 from core.atomic_loader import AtomicLoader
 
 class _JsonFormatter(logging.Formatter):
@@ -140,6 +142,12 @@ app.include_router(admin_router, prefix="/api/v2/admin", tags=["admin"])
 
 # Tags (entity labeling)
 app.include_router(tags_router, prefix="/api/v2/tags", tags=["tags"])
+
+# Jobs (output polling)
+app.include_router(jobs_router, prefix="/api/v2/jobs", tags=["jobs"])
+
+# Console (WebSocket reverse shell broker)
+app.include_router(console_router, prefix="/api/v2/console", tags=["console"])
 
 # Serve web UI
 ui_path = Path(__file__).parent.parent / "ui"

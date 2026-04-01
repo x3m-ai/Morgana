@@ -11,9 +11,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/x3m-ai/morgana-agent/internal/config"
+	"github.com/x3m-ai/morgana-agent/internal/console"
 	"github.com/x3m-ai/morgana-agent/internal/executor"
 	"github.com/x3m-ai/morgana-agent/internal/logger"
 )
@@ -33,25 +35,30 @@ type Job struct {
 
 // PollResponse is the server's response to a beacon poll.
 type PollResponse struct {
-	Job            *Job `json:"job"`
-	BeaconInterval int  `json:"beacon_interval"`
+	Job            *Job   `json:"job"`
+	BeaconInterval int    `json:"beacon_interval"`
+	ConsolePaw     string `json:"console_paw"` // non-empty: open a console session for this paw
 }
 
 // Beacon manages the agent polling loop.
 type Beacon struct {
-	cfg    *config.Config
-	client *http.Client
-	log    *logger.Logger
-	exec   *executor.Dispatcher
+	cfg            *config.Config
+	client         *http.Client
+	log            *logger.Logger
+	exec           *executor.Dispatcher
+	console        *console.Handler
+	consoleMu      sync.Mutex
+	consoleRunning bool
 }
 
 // New creates a new Beacon.
 func New(cfg *config.Config) *Beacon {
 	return &Beacon{
-		cfg:    cfg,
-		client: cfg.HTTPClient(),
-		log:    logger.New("morgana.beacon"),
-		exec:   executor.NewDispatcher(cfg),
+		cfg:     cfg,
+		client:  cfg.HTTPClient(),
+		log:     logger.New("morgana.beacon"),
+		exec:    executor.NewDispatcher(cfg),
+		console: console.New(cfg),
 	}
 }
 
@@ -95,6 +102,30 @@ func (b *Beacon) Run(ctx context.Context) error {
 
 		if resp.Job == nil {
 			b.log.Debug("[BEACON] No jobs pending", nil)
+			// Still check for pending console session even when no job
+		}
+
+		// Launch console session if server has a browser waiting
+		if resp.ConsolePaw != "" {
+			b.consoleMu.Lock()
+			if !b.consoleRunning {
+				b.consoleRunning = true
+				b.consoleMu.Unlock()
+				paw := resp.ConsolePaw
+				go func() {
+					defer func() {
+						b.consoleMu.Lock()
+						b.consoleRunning = false
+						b.consoleMu.Unlock()
+					}()
+					b.console.Open(paw)
+				}()
+			} else {
+				b.consoleMu.Unlock()
+			}
+		}
+
+		if resp.Job == nil {
 			continue
 		}
 

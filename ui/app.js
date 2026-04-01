@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Morgana UI - Main application script
  * Dark-theme dashboard for the Morgana Red Team Platform
  */
@@ -148,7 +148,7 @@ async function loadAgents() {
     const agents = await apiFetch("/api/v2/agents");
     const tbody = document.getElementById("agentsTableBody");
     if (!agents.length) {
-      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">No agents registered</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="10" class="empty-row">No agents registered</td></tr>`;
       return;
     }
     tbody.innerHTML = agents.map((a) => {
@@ -165,6 +165,7 @@ async function loadAgents() {
         <td>${fmtDate(a.last_seen)}</td>
         <td>${a.beacon_interval || 30}s</td>
         <td>${a.tags ? escHtml(a.tags) : "-"}</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="openConsole('${escHtml(a.paw)}', '${escHtml(a.alias || a.host || a.hostname || a.paw)}')" title="Open interactive console">Console</button></td>
         <td><button class="btn btn-danger btn-sm" onclick="deleteAgent('${escHtml(a.paw)}')" title="Remove agent">x</button></td>
       </tr>`;
     }).join("");
@@ -535,22 +536,116 @@ async function executeScriptFromModal() {
   const paw = document.getElementById("sm-agent-select").value;
   if (!paw) { alert("Select an agent first."); return; }
   const resultEl = document.getElementById("sm-execute-result");
+  const outputSec = document.getElementById("sm-output-section");
+  const outputPre = document.getElementById("sm-output-pre");
+  const outputStatus = document.getElementById("sm-output-status");
+
   resultEl.textContent = "Queuing...";
   resultEl.style.display = "inline";
+  outputSec.style.display = "none";
+  outputPre.textContent = "";
+
   try {
     const result = await apiFetch(`/api/v2/scripts/${_currentScriptId}/execute`, {
       method: "POST",
       body: JSON.stringify({ paw }),
     });
-    resultEl.textContent = result.queued ? `[SUCCESS] Job ${result.job_id} queued.` : "[WARN] Unexpected response.";
+    if (!result.queued) {
+      resultEl.textContent = "[WARN] Unexpected response.";
+      return;
+    }
+    resultEl.textContent = `[OK] Job queued (${result.job_id.slice(0, 8)}...)`;
+    // Show output panel and start polling
+    outputSec.style.display = "block";
+    outputStatus.textContent = "Running...";
+    outputPre.textContent = "";
+    pollJobOutput(result.job_id, outputPre, outputStatus, resultEl);
   } catch (err) {
     resultEl.textContent = "[ERROR] " + err.message;
   }
 }
 
+async function pollJobOutput(jobId, pre, statusEl, resultEl) {
+  const MAX_POLLS = 120; // 60 s at 500 ms
+  for (let i = 0; i < MAX_POLLS; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    try {
+      const job = await apiFetch(`/api/v2/jobs/${jobId}`);
+      if (job.status === "completed" || job.status === "failed" || job.state === "finished" || job.state === "failed") {
+        const exitOk = job.exit_code === 0;
+        statusEl.textContent = `Exit code: ${job.exit_code ?? "?"} | ${job.duration_ms ?? 0} ms`;
+        resultEl.textContent = `[${exitOk ? "SUCCESS" : "FAILED"}] Exit ${job.exit_code ?? "?"}` ;
+        let out = "";
+        if (job.stdout) out += job.stdout;
+        if (job.stderr) out += (out ? "\n--- STDERR ---\n" : "") + job.stderr;
+        pre.textContent = out || "(no output)";
+        return;
+      }
+    } catch (_) { /* server may not have result yet */ }
+  }
+  statusEl.textContent = "(timeout - check Tests page for result)";
+}
+
 
 // ─── Tags ─────────────────────────────────────────────────────────────────────
 
+
+// --- Console (reverse shell) --------------------------------------------------
+
+let _consoleWS = null;
+let _consoleTerm = null;
+let _consoleFitAddon = null;
+
+function openConsole(paw, label) {
+  if (_consoleWS) { _consoleWS.close(); _consoleWS = null; }
+  document.getElementById("consoleAgentLabel").textContent = label || paw;
+  document.getElementById("consoleStatus").textContent = "Connecting...";
+  document.getElementById("consoleModal").classList.remove("hidden");
+
+  const container = document.getElementById("consoleTerminal");
+  container.innerHTML = "";
+
+  _consoleTerm = new Terminal({
+    fontFamily: "Consolas, 'Courier New', monospace",
+    fontSize: 13,
+    theme: { background: "#0d0d0d", foreground: "#e0e0e0", cursor: "#667eea" },
+    cursorBlink: true,
+    convertEol: true,
+    scrollback: 2000,
+  });
+  _consoleFitAddon = new FitAddon.FitAddon();
+  _consoleTerm.loadAddon(_consoleFitAddon);
+  _consoleTerm.open(container);
+  _consoleFitAddon.fit();
+
+  _consoleTerm.onData((data) => {
+    if (_consoleWS && _consoleWS.readyState === WebSocket.OPEN) _consoleWS.send(data);
+  });
+
+  const proto = API_BASE.startsWith("https") ? "wss" : "ws";
+  const wsURL = `${proto}://${window.location.host}/api/v2/console/ws/${encodeURIComponent(paw)}?key=${encodeURIComponent(API_KEY)}`;
+  _consoleWS = new WebSocket(wsURL);
+
+  _consoleWS.onopen = () => { document.getElementById("consoleStatus").textContent = "Connected"; };
+  _consoleWS.onmessage = (evt) => { _consoleTerm.write(evt.data); };
+  _consoleWS.onerror = () => { document.getElementById("consoleStatus").textContent = "Error"; _consoleTerm.write("\r\n[ERROR] WebSocket error.\r\n"); };
+  _consoleWS.onclose = () => { document.getElementById("consoleStatus").textContent = "Disconnected"; if (_consoleTerm) _consoleTerm.write("\r\n[CONSOLE] Session closed.\r\n"); };
+
+  window.addEventListener("resize", _consoleResize);
+}
+
+function _consoleResize() { if (_consoleFitAddon) { try { _consoleFitAddon.fit(); } catch (_) {} } }
+
+function closeConsole() {
+  if (_consoleWS) { _consoleWS.close(); _consoleWS = null; }
+  if (_consoleTerm) { _consoleTerm.dispose(); _consoleTerm = null; }
+  window.removeEventListener("resize", _consoleResize);
+  document.getElementById("consoleModal").classList.add("hidden");
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !document.getElementById("consoleModal").classList.contains("hidden")) closeConsole();
+});
 let _allTags = [];
 let _tagPickerContext = { entityType: null, entityId: null };
 
