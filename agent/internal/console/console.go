@@ -111,6 +111,12 @@ func (h *Handler) Open(consolePaw string) {
 		return
 	}
 
+	// Suppress cmd.exe command echo without using /Q flag (which breaks piped stdin).
+	// @echo off makes cmd.exe not repeat each command line before executing it.
+	if runtime.GOOS == "windows" {
+		_, _ = stdinPipe.Write([]byte("@echo off\r\n"))
+	}
+
 	h.log.Info("[CONSOLE] Shell started", map[string]any{
 		"shell": shell,
 		"pid":   cmd.Process.Pid,
@@ -194,9 +200,9 @@ func shellConfig() (shell string, args []string, workDir string) {
 	switch runtime.GOOS {
 	case "windows":
 		workDir = `C:\merlino`
-		// /Q disables cmd.exe's own echo of commands received via stdin pipe.
-		// Without /Q, cmd.exe echoes each line back -> operator sees every char twice.
-		return "cmd.exe", []string{"/Q"}, workDir
+		// No extra flags: /Q causes cmd.exe to exit immediately with piped stdin.
+		// Echo suppression is done by writing "@echo off\r\n" to stdin after start.
+		return "cmd.exe", []string{}, workDir
 	case "darwin":
 		workDir = "/merlino"
 		if _, err := os.Stat("/bin/bash"); err == nil {
