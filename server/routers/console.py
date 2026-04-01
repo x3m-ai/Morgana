@@ -1,18 +1,18 @@
-"""WebSocket console broker.
+"""WebSocket console broker + native console launcher.
 
 Browser side:  WS /api/v2/console/ws/{paw}?key={api_key}
 Agent side:    WS /api/v2/console/agent/{paw}   (Authorization: Bearer {token})
-
-Flow:
-  1. Browser opens /ws/{paw}  -> session created, message sent: "Waiting for agent..."
-  2. Agent polls and receives console_paw in the poll response
-  3. Agent opens /agent/{paw} -> session bridged, full bidirectional traffic
-  4. When either side disconnects, both sides are cleaned up
+Native launch: POST /api/v2/console/native/{paw}?key={api_key}
+               -> spawns a real cmd.exe/bash window on the server machine
+                  bridged to the agent via local_console_bridge.py
 """
 
 import asyncio
 import hashlib
 import logging
+import subprocess
+import sys
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -25,6 +25,8 @@ from models.agent import Agent
 
 log = logging.getLogger("morgana.console")
 router = APIRouter()
+
+_BRIDGE_SCRIPT = Path(__file__).parent.parent / "core" / "local_console_bridge.py"
 
 
 # ---------------------------------------------------------------------------
@@ -65,8 +67,66 @@ async def reset_session(
 
 
 # ---------------------------------------------------------------------------
-# Browser endpoint
+# Native console (opens real cmd.exe / bash window on operator machine)
 # ---------------------------------------------------------------------------
+
+@router.post("/native/{paw}")
+async def open_native_console(
+    paw: str,
+    key: str = Query(default=""),
+    db: Session = Depends(get_db),
+):
+    """Spawn a real terminal window on the server machine connected to this agent.
+
+    The server launches local_console_bridge.py in a new cmd.exe window.
+    The bridge connects to /api/v2/console/ws/{paw} as a WebSocket client and
+    relays raw stdin/stdout, giving the operator a true interactive shell.
+    """
+    if key != settings.api_key:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    # Reset any stale session first
+    existing = console_sessions.get(paw)
+    if existing:
+        existing.done.set()
+        await asyncio.sleep(0.05)
+        console_sessions.remove(paw)
+
+    # Create new session - wakes the agent's long-poll immediately
+    console_sessions.create(paw)
+
+    ag = db.query(Agent).filter(Agent.paw == paw).first()
+    hostname = (ag.hostname if ag else None) or paw
+
+    ws_url = f"wss://localhost:{settings.port}/api/v2/console/ws/{paw}?key={settings.api_key}"
+    python = sys.executable
+    bridge = str(_BRIDGE_SCRIPT)
+
+    if sys.platform == "win32":
+        # Open a new cmd.exe window with a coloured title
+        subprocess.Popen(
+            [
+                "cmd.exe", "/c",
+                f"start \"Morgana - {hostname}\""
+                f" cmd.exe /k \"{python}\" \"{bridge}\" \"{ws_url}\" \"{hostname}\""
+            ],
+            shell=True,
+            creationflags=subprocess.DETACHED_PROCESS,
+        )
+    else:
+        # Linux/macOS - try common terminal emulators
+        for term in ("gnome-terminal", "xterm", "konsole"):
+            try:
+                subprocess.Popen(
+                    [term, "--", python, bridge, ws_url, hostname],
+                    start_new_session=True,
+                )
+                break
+            except FileNotFoundError:
+                continue
+
+    log.info("[CONSOLE] Native terminal launched for agent %s (%s)", paw, hostname)
+    return {"ok": True, "paw": paw, "hostname": hostname}
 
 @router.websocket("/ws/{paw}")
 async def browser_connect(

@@ -167,7 +167,7 @@ async function loadAgents() {
         <td>${a.tags ? escHtml(a.tags) : "-"}</td>
         <td><span class="version-badge" title="Agent version">${escHtml(a.agent_version || "?")}</span></td>
         <td style="white-space:nowrap">
-          <button class="btn btn-secondary btn-sm" onclick="openConsole('${escHtml(a.paw)}', '${escHtml(a.alias || a.host || a.hostname || a.paw)}')" title="Open interactive console">Console</button>
+          <button class="btn btn-secondary btn-sm" onclick="openNativeConsole('${escHtml(a.paw)}')" title="Open native terminal window connected to this agent">Console</button>
           <button class="console-reset-btn" onclick="resetConsoleSession('${escHtml(a.paw)}')" title="Reset stale console session">Reset</button>
         </td>
         <td><button class="btn btn-danger btn-sm" onclick="deleteAgent('${escHtml(a.paw)}')" title="Remove agent">x</button></td>
@@ -662,6 +662,36 @@ async function resetConsoleSession(paw) {
     console.log("[CONSOLE] Reset", paw, j.action);
   } catch (err) {
     console.warn("[CONSOLE] Reset failed:", err.message);
+  }
+}
+
+async function openNativeConsole(paw) {
+  // Show inline status next to the button while launching
+  const row = document.getElementById(`agent-row-${paw}`);
+  const statusSpan = row ? row.querySelector(".native-console-status") : null;
+  const setStatus = (msg, color) => {
+    if (!row) return;
+    let el = row.querySelector(".native-console-status");
+    if (!el) {
+      el = document.createElement("span");
+      el.className = "native-console-status";
+      el.style.cssText = "margin-left:8px;font-size:11px;font-style:italic;";
+      const td = row.querySelector("td:nth-child(10)");
+      if (td) td.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.color = color || "var(--text-muted)";
+  };
+  setStatus("launching...", "var(--accent-color)");
+  try {
+    const r = await fetch(`${API_BASE}/api/v2/console/native/${encodeURIComponent(paw)}?key=${encodeURIComponent(API_KEY)}`, { method: "POST" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+    setStatus(`shell opening for ${j.hostname}`, "#6bcb77");
+    setTimeout(() => setStatus(""), 5000);
+  } catch (err) {
+    setStatus("[ERROR] " + err.message, "#e53e3e");
+    console.error("[CONSOLE] Native launch failed:", err.message);
   }
 }
 
