@@ -204,32 +204,79 @@ async def open_native_console(
             }})
             [void]$ps2.BeginInvoke()
 
-            # Main thread: raw keyboard -> TCP (with local echo)
+            # Main thread: raw keyboard -> TCP (local echo + local command history)
+            $history   = [System.Collections.Generic.List[string]]::new()
+            $histIdx   = -1
+            $curLine   = ''
+
+            function _eraseLine {{
+                # Erase $curLine chars from the console by backspacing
+                if ($curLine.Length -gt 0) {{
+                    [System.Console]::Write("`b" * $curLine.Length + ' ' * $curLine.Length + "`b" * $curLine.Length)
+                }}
+            }}
+
             try {{
                 while ($true) {{
                     $key = [System.Console]::ReadKey($true)
                     if ($key.Key -eq [System.ConsoleKey]::Enter) {{
                         [System.Console]::WriteLine()
-                        $bytes = $enc.GetBytes("`r`n")
+                        if ($curLine.Length -gt 0) {{
+                            $history.Add($curLine)
+                        }}
+                        $histIdx = -1
+                        $toSend  = $curLine
+                        $curLine = ''
+                        $bytes = $enc.GetBytes("$toSend`r`n")
+
                     }} elseif ($key.Key -eq [System.ConsoleKey]::Backspace) {{
-                        # Echo backspace: erase last char on screen
-                        if ([System.Console]::CursorLeft -gt 0) {{
+                        if ($curLine.Length -gt 0) {{
+                            $curLine = $curLine.Substring(0, $curLine.Length - 1)
                             [System.Console]::Write("`b `b")
                         }}
                         $bytes = $enc.GetBytes("`b")
+
+                    }} elseif ($key.Key -eq [System.ConsoleKey]::UpArrow) {{
+                        # Previous history entry
+                        if ($history.Count -gt 0 -and $histIdx -lt $history.Count - 1) {{
+                            $histIdx++
+                            $recalled = $history[$history.Count - 1 - $histIdx]
+                            _eraseLine
+                            [System.Console]::Write($recalled)
+                            $curLine = $recalled
+                        }}
+                        continue
+
+                    }} elseif ($key.Key -eq [System.ConsoleKey]::DownArrow) {{
+                        # Next history entry (or blank)
+                        if ($histIdx -gt 0) {{
+                            $histIdx--
+                            $recalled = $history[$history.Count - 1 - $histIdx]
+                            _eraseLine
+                            [System.Console]::Write($recalled)
+                            $curLine = $recalled
+                        }} elseif ($histIdx -eq 0) {{
+                            $histIdx = -1
+                            _eraseLine
+                            $curLine = ''
+                        }}
+                        continue
+
                     }} elseif ($key.KeyChar -ne [char]0) {{
-                        # Printable character - echo locally
-                        [System.Console]::Write($key.KeyChar)
-                        $bytes = $enc.GetBytes([string]$key.KeyChar)
-                    }} elseif ($key.Modifiers -band [System.ConsoleModifiers]::Control) {{
-                        # Ctrl+letter: send control code to remote shell (e.g. Ctrl+C = [char]3)
-                        $ctrlChar = [char]($key.Key - [System.ConsoleKey]::A + 1)
-                        $bytes = $enc.GetBytes([string]$ctrlChar)
+                        if ($key.Modifiers -band [System.ConsoleModifiers]::Control) {{
+                            # Ctrl+letter -> send control code (Ctrl+C=[char]3, etc.)
+                            $ctrlChar = [char]([int][System.ConsoleKey]::A - 1 + ($key.Key - [System.ConsoleKey]::A + 1))
+                            $bytes = $enc.GetBytes([string][char]($key.Key - [System.ConsoleKey]::A + 1))
+                        }} else {{
+                            # Printable character
+                            [System.Console]::Write($key.KeyChar)
+                            $curLine += [string]$key.KeyChar
+                            $bytes = $enc.GetBytes([string]$key.KeyChar)
+                        }}
+
                     }} else {{
-                        # Special key (arrows, F-keys) - no local echo, send VT sequence
+                        # Special keys (RightArrow, LeftArrow, Home, End, Del) - VT sequences only
                         $vt = @{{
-                            [System.ConsoleKey]::UpArrow    = "`e[A"
-                            [System.ConsoleKey]::DownArrow  = "`e[B"
                             [System.ConsoleKey]::RightArrow = "`e[C"
                             [System.ConsoleKey]::LeftArrow  = "`e[D"
                             [System.ConsoleKey]::Home       = "`e[H"
@@ -314,8 +361,10 @@ async def browser_connect(
             return
 
         await websocket.send_text(
-            "\r\n[CONSOLE] Agent connected. Shell ready. "
-            "Working directory: C:\\merlino (Windows) / /merlino (Linux)\r\n\r\n"
+            "\r\n[CONSOLE] Agent connected. Shell ready.\r\n"
+            "[NOTE] Agent runs as NT Service (Session 0) - GUI apps (notepad, calc) "
+            "launch but are invisible on the user desktop. Use CLI tools only.\r\n"
+            "[TIP] Up/Down arrow = command history\r\n\r\n"
         )
 
         # ---- Bridge tasks -----------------------------------------------
