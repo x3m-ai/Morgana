@@ -14,6 +14,12 @@ import asyncio
 import ssl
 import sys
 import os
+import subprocess
+
+# Set the console window title now (we are already inside the new window)
+if sys.platform == "win32" and len(sys.argv) >= 3:
+    _hostname = sys.argv[2]
+    os.system(f"title Morgana - {_hostname}")
 
 # Windows raw keyboard input
 if sys.platform == "win32":

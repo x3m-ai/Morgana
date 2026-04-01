@@ -103,14 +103,13 @@ async def open_native_console(
     bridge = str(_BRIDGE_SCRIPT)
 
     if sys.platform == "win32":
-        # Open a new cmd.exe window with a coloured title.
-        # Use a plain string with shell=True so cmd.exe interprets quotes correctly:
-        #   start "title" cmd.exe /k "python" "bridge" "ws_url" "hostname"
-        cmd = (
-            f'start "Morgana - {hostname}"'
-            f' cmd.exe /k "{python}" "{bridge}" "{ws_url}" "{hostname}"'
+        # Spawn Python directly in a new console window.
+        # Avoids all cmd.exe /k quoting issues with URLs containing ?key=...
+        # The bridge script sets its own window title via os.system('title ...').
+        subprocess.Popen(
+            [python, str(bridge), ws_url, hostname],
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
-        subprocess.Popen(cmd, shell=True, creationflags=subprocess.DETACHED_PROCESS)
     else:
         # Linux/macOS - try common terminal emulators
         for term in ("gnome-terminal", "xterm", "konsole"):
