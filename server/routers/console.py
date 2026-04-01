@@ -177,6 +177,8 @@ async def open_native_console(
         # PowerShell script: TCP connect + Console.ReadKey($true) for keyboard
         ps_script = textwrap.dedent(f"""\
             $host.UI.RawUI.WindowTitle = 'Morgana - {hostname}'
+            # Intercept Ctrl+C so it goes to the remote shell, not kills this script
+            [System.Console]::TreatControlCAsInput = $true
             $tcp = New-Object System.Net.Sockets.TcpClient
             $tcp.Connect('127.0.0.1', {port})
             $stream = $tcp.GetStream()
@@ -219,6 +221,10 @@ async def open_native_console(
                         # Printable character - echo locally
                         [System.Console]::Write($key.KeyChar)
                         $bytes = $enc.GetBytes([string]$key.KeyChar)
+                    }} elseif ($key.Modifiers -band [System.ConsoleModifiers]::Control) {{
+                        # Ctrl+letter: send control code to remote shell (e.g. Ctrl+C = [char]3)
+                        $ctrlChar = [char]($key.Key - [System.ConsoleKey]::A + 1)
+                        $bytes = $enc.GetBytes([string]$ctrlChar)
                     }} else {{
                         # Special key (arrows, F-keys) - no local echo, send VT sequence
                         $vt = @{{

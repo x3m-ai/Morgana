@@ -168,7 +168,7 @@ async function loadAgents() {
         <td><span class="version-badge" title="Agent version">${escHtml(a.agent_version || "?")}</span></td>
         <td style="white-space:nowrap">
           <button class="btn btn-secondary btn-sm" onclick="openNativeConsole('${escHtml(a.paw)}')" title="Open native terminal window connected to this agent">Console</button>
-          <button class="console-reset-btn" onclick="resetConsoleSession('${escHtml(a.paw)}')" title="Reset stale console session">Reset</button>
+          <button class="console-reset-btn" onclick="resetAndRelaunchConsole('${escHtml(a.paw)}')" title="Kill current session and open a fresh console">Reset</button>
         </td>
         <td><button class="btn btn-danger btn-sm" onclick="deleteAgent('${escHtml(a.paw)}')" title="Remove agent">x</button></td>
       </tr>`;
@@ -663,6 +663,28 @@ async function resetConsoleSession(paw) {
   } catch (err) {
     console.warn("[CONSOLE] Reset failed:", err.message);
   }
+}
+
+async function resetAndRelaunchConsole(paw) {
+  // Show feedback in the agent row
+  const row = document.getElementById(`agent-row-${paw}`);
+  const setStatus = (msg, color) => {
+    if (!row) return;
+    let el = row.querySelector(".native-console-status");
+    if (!el) {
+      el = document.createElement("span");
+      el.className = "native-console-status";
+      el.style.cssText = "margin-left:8px;font-size:11px;font-style:italic;";
+      const td = row.querySelector("td:nth-child(10)");
+      if (td) td.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.color = color || "var(--text-muted)";
+  };
+  setStatus("resetting...", "#e08030");
+  await resetConsoleSession(paw);
+  setStatus("relaunching...", "var(--accent-color)");
+  await openNativeConsole(paw);
 }
 
 async function openNativeConsole(paw) {
