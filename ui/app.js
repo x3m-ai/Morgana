@@ -618,6 +618,7 @@ function openConsole(paw, label) {
   _consoleTerm.loadAddon(_consoleFitAddon);
   _consoleTerm.open(container);
   _consoleFitAddon.fit();
+  _consoleTerm.focus();
 
   _consoleTerm.onData((data) => {
     if (_consoleWS && _consoleWS.readyState === WebSocket.OPEN) _consoleWS.send(data);
