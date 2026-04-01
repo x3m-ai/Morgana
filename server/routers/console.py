@@ -9,12 +9,12 @@ Native launch: POST /api/v2/console/native/{paw}?key={api_key}
 """
 
 import asyncio
+import base64
 import hashlib
 import logging
 import socket
 import subprocess
 import sys
-import tempfile
 import textwrap
 from pathlib import Path
 from typing import Optional
@@ -91,13 +91,18 @@ async def _tcp_relay(port: int, ws_url: str) -> None:
         ssl_ctx.verify_mode = _ssl.CERT_NONE
 
     async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        peer = writer.get_extra_info("peername", "unknown")
+        log.info("[CONSOLE] TCP relay: client connected from %s (port %d)", peer, port)
         try:
-            async with websockets.connect(ws_url, ssl=ssl_ctx) as ws:
+            log.debug("[CONSOLE] TCP relay: connecting WS to %s", ws_url)
+            async with websockets.connect(ws_url, ssl=ssl_ctx, open_timeout=30) as ws:
+                log.info("[CONSOLE] TCP relay: WS connected to /ws/%s", ws_url.split("/ws/")[-1].split("?")[0])
 
                 async def tcp_to_ws():
                     while True:
                         data = await reader.read(4096)
                         if not data:
+                            log.debug("[CONSOLE] TCP relay: TCP client closed (EOF)")
                             break
                         await ws.send(data.decode("utf-8", errors="replace"))
 
@@ -106,6 +111,7 @@ async def _tcp_relay(port: int, ws_url: str) -> None:
                         b = msg.encode("utf-8") if isinstance(msg, str) else msg
                         writer.write(b)
                         await writer.drain()
+                    log.debug("[CONSOLE] TCP relay: WS closed by server")
 
                 done, pending = await asyncio.wait(
                     [asyncio.ensure_future(tcp_to_ws()),
@@ -114,8 +120,9 @@ async def _tcp_relay(port: int, ws_url: str) -> None:
                 )
                 for t in pending:
                     t.cancel()
+                log.info("[CONSOLE] TCP relay: bridge ended for port %d", port)
         except Exception as exc:
-            log.debug("[CONSOLE] TCP relay error: %s", exc)
+            log.warning("[CONSOLE] TCP relay error (port %d): %s", port, exc)
         finally:
             try:
                 writer.close()
@@ -179,8 +186,29 @@ async def open_native_console(
             $host.UI.RawUI.WindowTitle = 'Morgana - {hostname}'
             # Intercept Ctrl+C so it goes to the remote shell, not kills this script
             [System.Console]::TreatControlCAsInput = $true
-            $tcp = New-Object System.Net.Sockets.TcpClient
-            $tcp.Connect('127.0.0.1', {port})
+
+            # Connect to TCP relay with retry (relay may take a moment to bind)
+            $tcp = $null
+            $relayPort = {port}
+            $retries = 20
+            $i = 0
+            while ($i -lt $retries) {{
+                try {{
+                    $tcp = New-Object System.Net.Sockets.TcpClient
+                    $tcp.Connect('127.0.0.1', $relayPort)
+                    break
+                }} catch {{
+                    $tcp = $null
+                    $i++
+                    Start-Sleep -Milliseconds 500
+                }}
+            }}
+            if ($tcp -eq $null) {{
+                Write-Host '[ERROR] Could not connect to Morgana relay on port ' + $relayPort + ' after ' + $retries + ' attempts.'
+                Write-Host '[ERROR] Make sure the Morgana server is running on localhost:{settings.port}'
+                Read-Host 'Press Enter to close'
+                exit 1
+            }}
             $stream = $tcp.GetStream()
             $enc = [System.Text.Encoding]::UTF8
 
@@ -298,16 +326,13 @@ async def open_native_console(
             Read-Host
         """)
 
-        # Write to temp file (deleted on next OS reboot automatically)
-        tf = tempfile.NamedTemporaryFile(
-            suffix=".ps1", delete=False, mode="w", encoding="utf-8",
-            dir=tempfile.gettempdir()
-        )
-        tf.write(ps_script)
-        tf.close()
+        # Encode the script as UTF-16-LE Base64 for -EncodedCommand (no temp file,
+        # no execution policy issues, no path-with-spaces problems).
+        encoded = base64.b64encode(ps_script.encode("utf-16-le")).decode("ascii")
+        log.debug("[CONSOLE] PS script encoded (%d bytes -> %d base64 chars)", len(ps_script), len(encoded))
 
         subprocess.Popen(
-            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tf.name],
+            ["powershell.exe", "-NoProfile", "-EncodedCommand", encoded],
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
 
@@ -396,7 +421,11 @@ async def browser_connect(
 
     finally:
         sess.done.set()
-        console_sessions.remove(paw)
+        # Only remove the session if it's still the same one we entered with.
+        # A rapid session reset may have replaced it already.
+        current = console_sessions.get(paw)
+        if current is sess:
+            console_sessions.remove(paw)
         log.info("[CONSOLE] Browser session closed for agent %s", paw)
 
 
