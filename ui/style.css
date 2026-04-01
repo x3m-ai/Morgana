@@ -657,6 +657,22 @@ body {
 .btn-danger:hover { background: #c53030; }
 
 /* ---- Version badge ------------------------------------------------------- */
+.beacon-click {
+  cursor: pointer;
+  border-bottom: 1px dashed var(--text-muted);
+  padding-bottom: 1px;
+}
+.beacon-click:hover { color: var(--accent-color); border-bottom-color: var(--accent-color); }
+
+.beacon-edit-input {
+  background: var(--bg-input, #3a3a3a);
+  border: 1px solid var(--accent-color);
+  color: var(--text-color);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 12px;
+}
+
 .reset-btn {
   margin-left: 4px;
   opacity: 0.55;

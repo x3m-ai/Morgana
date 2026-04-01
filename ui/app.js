@@ -163,7 +163,7 @@ async function loadAgents() {
         <td>${escHtml(a.os_version || "-")}</td>
         <td>${stateBadge(a.status)}</td>
         <td>${fmtDate(a.last_seen)}</td>
-        <td>${a.beacon_interval || 30}s</td>
+        <td><span class="beacon-click" id="beacon-${escHtml(a.paw)}" onclick="editAgentBeacon('${escHtml(a.paw)}', ${a.beacon_interval || 30})" title="Click to change beacon interval">${a.beacon_interval || 30}s</span></td>
         <td>${a.tags ? escHtml(a.tags) : "-"}</td>
         <td><span class="version-badge" title="Agent version">${escHtml(a.agent_version || "?")}</span></td>
         <td style="white-space:nowrap">
@@ -369,8 +369,63 @@ async function loadAdminStatus() {
     const input = document.getElementById("apiKeyInput");
     if (input) input.value = API_KEY;
 
+    // Load global settings (beacon default)
+    loadGlobalSettings();
+
   } catch (err) {
     console.error("[ADMIN] Status load failed:", err.message);
+  }
+}
+
+async function loadGlobalSettings() {
+  try {
+    const data = await apiFetch("/api/v2/admin/settings");
+    const el = document.getElementById("globalBeaconInput");
+    if (el && data.default_beacon_interval) el.value = data.default_beacon_interval;
+  } catch (err) {
+    console.warn("[ADMIN] Load global settings failed:", err.message);
+  }
+}
+
+async function saveGlobalSettings() {
+  const val = parseInt(document.getElementById("globalBeaconInput").value, 10);
+  if (!val || val < 5 || val > 3600) { alert("Beacon must be 5-3600 seconds"); return; }
+  try {
+    await apiFetch("/api/v2/admin/settings", { method: "PUT", body: JSON.stringify({ default_beacon_interval: val }) });
+    const saved = document.getElementById("globalSettingsSaved");
+    if (saved) { saved.style.display = "inline"; setTimeout(() => { saved.style.display = "none"; }, 2000); }
+  } catch (err) {
+    console.error("[ADMIN] Save global settings failed:", err.message);
+  }
+}
+
+function editAgentBeacon(paw, current) {
+  const span = document.getElementById(`beacon-${paw}`);
+  if (!span) return;
+  const td = span.closest("td");
+  td.innerHTML = `
+    <input type="number" class="beacon-edit-input" id="beacon-input-${escHtml(paw)}"
+      value="${current}" min="5" max="3600" style="width:58px;text-align:center" />
+    <button class="btn btn-primary btn-sm" style="margin-left:3px" onclick="saveAgentBeacon('${escHtml(paw)}')">OK</button>
+    <button class="btn btn-secondary btn-sm" style="margin-left:2px" onclick="loadAgents()">x</button>
+  `;
+  const inp = document.getElementById(`beacon-input-${paw}`);
+  if (inp) { inp.focus(); inp.select(); }
+}
+
+async function saveAgentBeacon(paw) {
+  const inp = document.getElementById(`beacon-input-${paw}`);
+  if (!inp) return;
+  const val = parseInt(inp.value, 10);
+  if (!val || val < 5 || val > 3600) { alert("Beacon must be 5-3600 seconds"); return; }
+  try {
+    await apiFetch(`/api/v2/agents/${encodeURIComponent(paw)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ beacon_interval: val }),
+    });
+    await loadAgents();
+  } catch (err) {
+    console.error("[AGENTS] Save beacon failed:", err.message);
   }
 }
 

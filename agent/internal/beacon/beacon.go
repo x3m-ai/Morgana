@@ -108,10 +108,13 @@ func (b *Beacon) Run(ctx context.Context) error {
 			continue
 		}
 
-		// Server may still send beacon_interval - store it but we no longer sleep on it
+		// Server may push a new beacon_interval - store and persist to config.json
 		if resp.BeaconInterval > 0 && resp.BeaconInterval != b.cfg.BeaconInterval {
-			b.log.Info("[BEACON] Server updated beacon interval (stored)", map[string]any{"interval": resp.BeaconInterval})
+			b.log.Info("[BEACON] Server updated beacon interval", map[string]any{"old": b.cfg.BeaconInterval, "new": resp.BeaconInterval})
 			b.cfg.BeaconInterval = resp.BeaconInterval
+			if err := config.Save(b.cfg); err != nil {
+				b.log.Warn("[BEACON] Failed to persist updated beacon interval", map[string]any{"error": err.Error()})
+			}
 		}
 
 		if resp.Job == nil {

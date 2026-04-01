@@ -21,6 +21,7 @@ def _require_api_key(key: Optional[str] = Header(None, alias="KEY")):
 
 class AgentPatch(BaseModel):
     alias: Optional[str] = None
+    beacon_interval: Optional[int] = None  # seconds, 5-3600; propagated on next poll
 
 
 @router.get("/agents")
@@ -47,8 +48,15 @@ async def patch_agent(paw: str, body: AgentPatch, db: Session = Depends(get_db),
         raise HTTPException(status_code=404, detail="Agent not found")
     if body.alias is not None:
         agent.alias = body.alias.strip() or None
+    if body.beacon_interval is not None:
+        if not (5 <= body.beacon_interval <= 3600):
+            raise HTTPException(status_code=400, detail="beacon_interval must be between 5 and 3600 seconds")
+        agent.beacon_interval = body.beacon_interval
+        # Wake the long-poll so the agent picks up the new interval immediately
+        from core import poll_wake
+        poll_wake.wake(paw)
     db.commit()
-    return {"paw": agent.paw, "alias": agent.alias or ""}
+    return {"paw": agent.paw, "alias": agent.alias or "", "beacon_interval": agent.beacon_interval}
 
 
 @router.delete("/agents/{paw}")
