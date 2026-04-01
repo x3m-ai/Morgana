@@ -28,7 +28,7 @@ type Config struct {
 // Default values
 func defaults() Config {
 	return Config{
-		BeaconInterval:      30,
+		BeaconInterval:      5,
 		MaxExecutionTimeout: 300,
 		MaxOutputBytes:      102400,
 		LogLevel:            "info",

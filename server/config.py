@@ -37,7 +37,7 @@ class Settings:
     atomic_path: str = os.getenv("MORGANA_ATOMICS", str(BASE_DIR.parent / "atomics" / "atomics"))
 
     # Agent defaults
-    default_beacon_interval: int = int(os.getenv("MORGANA_BEACON_INTERVAL", "30"))
+    default_beacon_interval: int = int(os.getenv("MORGANA_BEACON_INTERVAL", "5"))
     max_output_bytes: int = int(os.getenv("MORGANA_MAX_OUTPUT", str(100 * 1024)))  # 100KB
 
     # Logging

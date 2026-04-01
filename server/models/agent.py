@@ -19,7 +19,7 @@ class Agent(Base):
     agent_version = Column(String)
     status = Column(String, default="offline")  # online|offline|idle|busy
     last_seen = Column(DateTime)
-    beacon_interval = Column(Integer, default=30)
+    beacon_interval = Column(Integer, default=5)
     work_dir = Column(String)
     token_hash = Column(String)                 # HMAC of agent_token (never plaintext)
     enrolled_at = Column(DateTime, default=datetime.utcnow)

@@ -690,6 +690,9 @@ async function openConsole(paw, label) {
   _consoleFitAddon.fit();
   _consoleTerm.focus();
 
+  // Re-focus terminal whenever user clicks anywhere inside the terminal container
+  container.addEventListener("mousedown", () => { if (_consoleTerm) _consoleTerm.focus(); });
+
   _consoleTerm.onData((data) => {
     if (_consoleWS && _consoleWS.readyState === WebSocket.OPEN) _consoleWS.send(data);
   });
@@ -698,7 +701,11 @@ async function openConsole(paw, label) {
   const wsURL = `${proto}://${window.location.host}/api/v2/console/ws/${encodeURIComponent(paw)}?key=${encodeURIComponent(API_KEY)}`;
   _consoleWS = new WebSocket(wsURL);
 
-  _consoleWS.onopen = () => { document.getElementById("consoleStatus").textContent = "Connected"; };
+  _consoleWS.onopen = () => {
+    document.getElementById("consoleStatus").textContent = "Connected";
+    // Re-apply focus once the WS is live - browser may have shifted focus during connection
+    if (_consoleTerm) _consoleTerm.focus();
+  };
   _consoleWS.onmessage = (evt) => { _consoleTerm.write(evt.data); };
   _consoleWS.onerror = () => { document.getElementById("consoleStatus").textContent = "Error"; _consoleTerm.write("\r\n[ERROR] WebSocket error.\r\n"); };
   _consoleWS.onclose = () => { document.getElementById("consoleStatus").textContent = "Disconnected"; if (_consoleTerm) _consoleTerm.write("\r\n[CONSOLE] Session closed.\r\n"); };
