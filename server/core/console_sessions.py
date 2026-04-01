@@ -42,8 +42,10 @@ _sessions: Dict[str, ConsoleSession] = {}
 
 def create(paw: str) -> ConsoleSession:
     """Create (or replace) a session for the given agent paw."""
+    from core import poll_wake  # local import to avoid circular
     sess = ConsoleSession(paw)
     _sessions[paw] = sess
+    poll_wake.wake(paw)  # immediately unblock any waiting long-poll for this agent
     log.debug("[SESSIONS] Created session for %s", paw)
     return sess
 

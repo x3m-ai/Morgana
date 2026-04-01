@@ -63,42 +63,55 @@ func New(cfg *config.Config) *Beacon {
 	}
 }
 
+// errorBackoff is the wait between retries after a failed poll.
+const errorBackoff = 5 * time.Second
+
 // Run starts the polling loop. Blocks until ctx is cancelled.
+//
+// The server uses long-polling: it holds each /poll request open for up to 28 s
+// when no work is pending, returning immediately when a job or console session
+// arrives. Because the server-side hold acts as a natural rate limiter we do
+// NOT sleep between polls - we just loop immediately after each response.
+// On error we back off for errorBackoff seconds before retrying.
 func (b *Beacon) Run(ctx context.Context) error {
-	b.log.Info("[BEACON] Starting beacon loop", map[string]any{
-		"paw":      b.cfg.PAW,
-		"server":   b.cfg.ServerURL,
-		"interval": b.cfg.BeaconInterval,
+	b.log.Info("[BEACON] Starting beacon loop (long-poll mode)", map[string]any{
+		"paw":    b.cfg.PAW,
+		"server": b.cfg.ServerURL,
 	})
 
-	interval := time.Duration(b.cfg.BeaconInterval) * time.Second
 	lastHeartbeat := time.Time{}
 
 	for {
+		// Check for cancellation without blocking
 		select {
 		case <-ctx.Done():
 			b.log.Info("[BEACON] Context cancelled, stopping", nil)
 			return nil
-		case <-time.After(interval):
+		default:
 		}
 
-		// Send heartbeat every 60s
+		// Send heartbeat every 60s (independent of poll cadence)
 		if time.Since(lastHeartbeat) > 60*time.Second {
 			b.sendHeartbeat()
 			lastHeartbeat = time.Now()
 		}
 
-		// Poll for job
+		// Poll - server holds connection up to 28 s if idle, returns sooner on work
 		resp, err := b.poll()
 		if err != nil {
-			b.log.Warn("[BEACON] Poll failed, will retry", map[string]any{"error": err.Error()})
+			b.log.Warn("[BEACON] Poll failed, backing off", map[string]any{"error": err.Error(), "backoff": errorBackoff.String()})
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(errorBackoff):
+			}
 			continue
 		}
 
-		// Update interval if server changed it
+		// Server may still send beacon_interval - store it but we no longer sleep on it
 		if resp.BeaconInterval > 0 && resp.BeaconInterval != b.cfg.BeaconInterval {
-			b.log.Info("[BEACON] Server updated beacon interval", map[string]any{"interval": resp.BeaconInterval})
-			interval = time.Duration(resp.BeaconInterval) * time.Second
+			b.log.Info("[BEACON] Server updated beacon interval (stored)", map[string]any{"interval": resp.BeaconInterval})
+			b.cfg.BeaconInterval = resp.BeaconInterval
 		}
 
 		if resp.Job == nil {

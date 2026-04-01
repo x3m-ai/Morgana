@@ -118,6 +118,6 @@ func (c *Config) HTTPClient() *http.Client {
 	}
 	return &http.Client{
 		Transport: transport,
-		Timeout:   15 * time.Second, // Prevent indefinite hang if server is down
+		Timeout:   35 * time.Second, // Must exceed server long-poll hold (28 s) with margin
 	}
 }
