@@ -202,14 +202,37 @@ async def open_native_console(
             }})
             [void]$ps2.BeginInvoke()
 
-            # Main thread: raw keyboard -> TCP
+            # Main thread: raw keyboard -> TCP (with local echo)
             try {{
                 while ($true) {{
                     $key = [System.Console]::ReadKey($true)
                     if ($key.Key -eq [System.ConsoleKey]::Enter) {{
+                        [System.Console]::WriteLine()
                         $bytes = $enc.GetBytes("`r`n")
-                    }} else {{
+                    }} elseif ($key.Key -eq [System.ConsoleKey]::Backspace) {{
+                        # Echo backspace: erase last char on screen
+                        if ([System.Console]::CursorLeft -gt 0) {{
+                            [System.Console]::Write("`b `b")
+                        }}
+                        $bytes = $enc.GetBytes("`b")
+                    }} elseif ($key.KeyChar -ne [char]0) {{
+                        # Printable character - echo locally
+                        [System.Console]::Write($key.KeyChar)
                         $bytes = $enc.GetBytes([string]$key.KeyChar)
+                    }} else {{
+                        # Special key (arrows, F-keys) - no local echo, send VT sequence
+                        $vt = @{{
+                            [System.ConsoleKey]::UpArrow    = "`e[A"
+                            [System.ConsoleKey]::DownArrow  = "`e[B"
+                            [System.ConsoleKey]::RightArrow = "`e[C"
+                            [System.ConsoleKey]::LeftArrow  = "`e[D"
+                            [System.ConsoleKey]::Home       = "`e[H"
+                            [System.ConsoleKey]::End        = "`e[F"
+                            [System.ConsoleKey]::Delete     = "`e[3~"
+                        }}
+                        if ($vt.ContainsKey($key.Key)) {{
+                            $bytes = $enc.GetBytes($vt[$key.Key])
+                        }} else {{ continue }}
                     }}
                     $stream.Write($bytes, 0, $bytes.Length)
                     $stream.Flush()
