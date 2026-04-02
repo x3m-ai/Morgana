@@ -217,6 +217,8 @@ async def open_native_console(
             $enc = [System.Text.Encoding]::UTF8
 
             # Recv thread (server output -> console)
+            # Simple blocking read: cmd.exe sends its own prompts and echo,
+            # so we just display whatever arrives without adding anything.
             $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
             $rs  = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace($iss)
             $rs.Open()
@@ -226,108 +228,44 @@ async def open_native_console(
             $ps2.Runspace = $rs
             [void]$ps2.AddScript({{
                 $buf = New-Object byte[] 4096
-                # Suppress the prompt until we have received at least one chunk
-                # from cmd.exe (the Windows banner). This avoids a premature
-                # "> " appearing before the shell is ready.
-                $gotFirstData = $false
-                $promptShown  = $true   # start suppressed
                 while ($true) {{
                     try {{
-                        if ($stream.DataAvailable) {{
-                            $n = $stream.Read($buf, 0, 4096)
-                            if ($n -le 0) {{ break }}
-                            [System.Console]::Write($enc.GetString($buf, 0, $n))
-                            $gotFirstData = $true
-                            $promptShown  = $false
-                        }} else {{
-                            Start-Sleep -Milliseconds 50
-                            # After output stops (150 ms silence), show prompt
-                            if ($gotFirstData -and -not $promptShown -and -not $stream.DataAvailable) {{
-                                Start-Sleep -Milliseconds 100
-                                if (-not $stream.DataAvailable) {{
-                                    [System.Console]::Write("`nC:\merlino> ")
-                                    $promptShown = $true
-                                }}
-                            }}
-                        }}
+                        $n = $stream.Read($buf, 0, 4096)
+                        if ($n -le 0) {{ break }}
+                        [System.Console]::Write($enc.GetString($buf, 0, $n))
                     }} catch {{ break }}
                 }}
             }})
             [void]$ps2.BeginInvoke()
 
-            # Main thread: raw keyboard -> TCP (local echo + local command history)
-            $history   = [System.Collections.Generic.List[string]]::new()
-            $histIdx   = -1
-            $curLine   = ''
-
-            function _eraseLine {{
-                # Erase $curLine chars from the console by backspacing
-                if ($curLine.Length -gt 0) {{
-                    [System.Console]::Write("`b" * $curLine.Length + ' ' * $curLine.Length + "`b" * $curLine.Length)
-                }}
-            }}
-
+            # Main thread: raw keyboard -> TCP
+            # cmd.exe with piped stdin does NOT echo keystrokes, so we must
+            # echo printable chars locally.  But cmd.exe DOES send its own
+            # prompt (C:\merlino>) via stdout, so we must NOT add a fake one.
             try {{
                 while ($true) {{
                     $key = [System.Console]::ReadKey($true)
+                    $bytes = $null
                     if ($key.Key -eq [System.ConsoleKey]::Enter) {{
                         [System.Console]::WriteLine()
-                        if ($curLine.Length -gt 0) {{
-                            $history.Add($curLine)
-                        }}
-                        $histIdx = -1
-                        $curLine = ''
-                        # Send CR+LF to cmd.exe so the command line gets executed.
-                        # Individual printable chars were already sent one by one.
                         $bytes = $enc.GetBytes("`r`n")
                     }} elseif ($key.Key -eq [System.ConsoleKey]::Backspace) {{
-                        if ($curLine.Length -gt 0) {{
-                            $curLine = $curLine.Substring(0, $curLine.Length - 1)
-                            [System.Console]::Write("`b `b")
-                        }}
+                        [System.Console]::Write("`b `b")
                         $bytes = $enc.GetBytes("`b")
-
-                    }} elseif ($key.Key -eq [System.ConsoleKey]::UpArrow) {{
-                        # Previous history entry
-                        if ($history.Count -gt 0 -and $histIdx -lt $history.Count - 1) {{
-                            $histIdx++
-                            $recalled = $history[$history.Count - 1 - $histIdx]
-                            _eraseLine
-                            [System.Console]::Write($recalled)
-                            $curLine = $recalled
-                        }}
-                        continue
-
-                    }} elseif ($key.Key -eq [System.ConsoleKey]::DownArrow) {{
-                        # Next history entry (or blank)
-                        if ($histIdx -gt 0) {{
-                            $histIdx--
-                            $recalled = $history[$history.Count - 1 - $histIdx]
-                            _eraseLine
-                            [System.Console]::Write($recalled)
-                            $curLine = $recalled
-                        }} elseif ($histIdx -eq 0) {{
-                            $histIdx = -1
-                            _eraseLine
-                            $curLine = ''
-                        }}
-                        continue
-
                     }} elseif ($key.KeyChar -ne [char]0) {{
                         if ($key.Modifiers -band [System.ConsoleModifiers]::Control) {{
-                            # Ctrl+letter -> send control code (Ctrl+C=[char]3, etc.)
-                            $ctrlChar = [char]([int][System.ConsoleKey]::A - 1 + ($key.Key - [System.ConsoleKey]::A + 1))
-                            $bytes = $enc.GetBytes([string][char]($key.Key - [System.ConsoleKey]::A + 1))
+                            # Ctrl+letter -> control code (Ctrl+C = 0x03, etc.)
+                            $bytes = [byte[]]@(($key.Key - [System.ConsoleKey]::A + 1))
                         }} else {{
-                            # Printable character
+                            # Printable character: local echo + send
                             [System.Console]::Write($key.KeyChar)
-                            $curLine += [string]$key.KeyChar
                             $bytes = $enc.GetBytes([string]$key.KeyChar)
                         }}
-
                     }} else {{
-                        # Special keys (RightArrow, LeftArrow, Home, End, Del) - VT sequences only
+                        # Special keys: VT escape sequences
                         $vt = @{{
+                            [System.ConsoleKey]::UpArrow    = "`e[A"
+                            [System.ConsoleKey]::DownArrow  = "`e[B"
                             [System.ConsoleKey]::RightArrow = "`e[C"
                             [System.ConsoleKey]::LeftArrow  = "`e[D"
                             [System.ConsoleKey]::Home       = "`e[H"
@@ -336,10 +274,12 @@ async def open_native_console(
                         }}
                         if ($vt.ContainsKey($key.Key)) {{
                             $bytes = $enc.GetBytes($vt[$key.Key])
-                        }} else {{ continue }}
+                        }}
                     }}
-                    $stream.Write($bytes, 0, $bytes.Length)
-                    $stream.Flush()
+                    if ($bytes -ne $null) {{
+                        $stream.Write($bytes, 0, $bytes.Length)
+                        $stream.Flush()
+                    }}
                 }}
             }} catch {{
                 Write-Log "[ERROR] Console keyboard loop exception: $_"
