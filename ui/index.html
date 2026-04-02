@@ -277,14 +277,96 @@
         </div>
       </div>
 
-      <!-- Chains page placeholder -->
+      <!-- Chains page -->
       <div id="page-chains" class="page">
-        <div class="page-header"><h1>Chains</h1></div>
-        <div class="card">
-          <div class="card-body">
-            <div class="empty-state">Chain builder coming soon. Chains are ordered sequences of Scripts forming attack paths.</div>
+
+        <!-- ── List view ───────────────────────────────────────────────── -->
+        <div id="chain-list-view">
+          <div class="page-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <h1 style="flex:1">Chains</h1>
+            <button class="btn btn-primary" onclick="newChain()">+ New Chain</button>
+            <button class="btn btn-secondary" onclick="importChainJSON()">Import JSON</button>
+            <button class="btn btn-secondary" onclick="loadChains()">Refresh</button>
+          </div>
+
+          <div class="card" style="margin-bottom:16px">
+            <div class="card-body" style="padding:0">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th>Nodes</th>
+                    <th>Updated</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="chainListBody">
+                  <tr><td colspan="5" class="empty-row">Loading chains...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="page-header" style="margin-top:24px">
+            <h2 style="font-size:15px;font-weight:600">Recent Executions</h2>
+          </div>
+          <div class="card">
+            <div class="card-body" style="padding:0">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Chain</th>
+                    <th>Agent</th>
+                    <th>State</th>
+                    <th>Started</th>
+                    <th>Finished</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="chainExecsBody">
+                  <tr><td colspan="6" class="empty-row">No executions yet</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
+
+        <!-- ── Editor view (hidden by default) ────────────────────────── -->
+        <div id="chain-editor-view" style="display:none">
+          <div class="page-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <button class="btn btn-secondary" onclick="closeChainEditor()">&larr; Back</button>
+            <h1 style="flex:1" id="chain-editor-title">New Chain</h1>
+            <button class="btn btn-primary"    onclick="saveChain()">Save</button>
+            <button class="btn btn-secondary"  onclick="executeChainFromEditor()" id="chain-exec-btn" disabled>Execute</button>
+            <button class="btn btn-secondary"  onclick="exportChainJSON()">Export JSON</button>
+          </div>
+
+          <div class="card" style="margin-bottom:16px">
+            <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
+              <div style="display:flex;gap:12px;flex-wrap:wrap">
+                <div style="flex:1;min-width:200px">
+                  <label class="form-label">Name</label>
+                  <input type="text" id="chain-name-input" class="form-input" placeholder="e.g. Credential Harvesting" />
+                </div>
+                <div style="flex:2;min-width:200px">
+                  <label class="form-label">Description</label>
+                  <input type="text" id="chain-desc-input" class="form-input" placeholder="Brief objective..." />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Flow canvas -->
+          <div class="card">
+            <div class="card-body" style="overflow-x:auto;overflow-y:auto;min-height:300px">
+              <div id="chain-flow" class="chain-flow">
+                <!-- Rendered by renderChainFlow() -->
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <!-- Campaigns page placeholder -->
@@ -571,6 +653,86 @@
         <div id="consoleTerminal" class="console-terminal"></div>
       </div>
     </div>
+  </div>
+
+  <!-- Chain: Script Picker Modal -->
+  <div id="chainScriptPickerModal" class="modal hidden">
+    <div class="modal-content" style="max-width:920px;width:96%;max-height:85vh;overflow:hidden;display:flex;flex-direction:column">
+      <div class="modal-header">
+        <h3>Select Script</h3>
+        <button class="modal-close" onclick="closeChainScriptPicker()">&times;</button>
+      </div>
+      <div class="modal-body" style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input type="text" id="csp-search" class="search-input" placeholder="TCode or name..." oninput="filterCsp()">
+          <select id="csp-tactic"   class="select-input" onchange="filterCsp()"><option value="">All tactics</option></select>
+          <select id="csp-executor" class="select-input" onchange="filterCsp()">
+            <option value="">All executors</option>
+            <option value="powershell">PowerShell</option>
+            <option value="cmd">CMD</option>
+            <option value="bash">Bash</option>
+            <option value="python">Python</option>
+            <option value="manual">Manual</option>
+          </select>
+          <select id="csp-platform" class="select-input" onchange="filterCsp()">
+            <option value="">All platforms</option>
+            <option value="windows">Windows</option>
+            <option value="linux">Linux</option>
+            <option value="macos">macOS</option>
+          </select>
+        </div>
+        <div style="overflow-y:auto;flex:1">
+          <table class="data-table">
+            <thead>
+              <tr><th>TCode</th><th>Name</th><th>Tactic</th><th>Executor</th><th>Platform</th><th></th></tr>
+            </thead>
+            <tbody id="cspTableBody">
+              <tr><td colspan="6" class="empty-row">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chain: Execute Modal (pick agent) -->
+  <div id="chainExecModal" class="modal hidden">
+    <div class="modal-content" style="max-width:420px">
+      <div class="modal-header">
+        <h3>Execute Chain</h3>
+        <button class="modal-close" onclick="closeChainExecModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
+        <p style="margin:0;color:var(--text-secondary)">Select the agent to run this chain on:</p>
+        <select id="chain-exec-agent-sel" class="select-input" style="width:100%">
+          <option value="">-- select agent --</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="confirmExecuteChain()">Execute</button>
+        <button class="btn btn-secondary" onclick="closeChainExecModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chain: Execution Log Modal -->
+  <div id="chainExecLogModal" class="modal hidden">
+    <div class="modal-content" style="max-width:860px;width:96%;max-height:86vh;overflow:hidden;display:flex;flex-direction:column">
+      <div class="modal-header">
+        <h3 id="chainExecLogTitle">Execution Log</h3>
+        <button class="modal-close" onclick="closeChainExecLog()">&times;</button>
+      </div>
+      <div class="modal-body" style="overflow-y:auto;flex:1">
+        <div id="chainExecLogBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chain: Add-node floating popup (positioned by JS) -->
+  <div id="chainAddMenu" class="chain-add-menu hidden">
+    <button onclick="chainMenuAddScript()">Script Node</button>
+    <button onclick="chainMenuAddIfElse()">If / Then / Else</button>
+    <button onclick="closeChainAddMenu()" style="color:var(--text-muted);font-size:11px">Cancel</button>
   </div>
 
   <script src="app.js"></script>

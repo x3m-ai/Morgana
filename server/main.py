@@ -156,6 +156,10 @@ app.include_router(tests_router, prefix="/api/v2/tests", tags=["tests"])
 # Console (WebSocket reverse shell broker)
 app.include_router(console_router, prefix="/api/v2/console", tags=["console"])
 
+# Chains (visual flow builder + execution engine)
+from routers.chains import router as chains_router
+app.include_router(chains_router, prefix="/api/v2/chains", tags=["chains"])
+
 # Serve web UI
 ui_path = Path(__file__).parent.parent / "ui"
 if ui_path.exists():

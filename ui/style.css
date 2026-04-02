@@ -405,6 +405,7 @@ body {
   z-index: 100;
 }
 .modal.hidden { display: none; }
+.hidden { display: none !important; }
 
 .modal-content {
   background: var(--bg-card);
@@ -732,4 +733,238 @@ body {
   white-space: pre-wrap;
   word-break: break-all;
   margin: 0;
+}
+/* ─── Chain flow builder ────────────────────────────────────────────────── */
+
+.chain-flow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 0 40px;
+  min-height: 200px;
+  position: relative;
+  user-select: none;
+}
+
+/* Vertical connector line */
+.chain-vline {
+  width: 2px;
+  height: 22px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+/* Start circle (green dot at top) */
+.chain-start-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--success);
+  border: 2px solid #66bb69;
+  flex-shrink: 0;
+}
+
+/* + Add button circle */
+.chain-add-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px dashed var(--accent);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.chain-add-btn:hover { background: rgba(102,126,234,0.18); }
+
+/* Script node card */
+.chain-script-node {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  min-width: 240px;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+}
+.chain-script-node:hover { border-color: var(--accent); }
+.chain-script-node .csn-tactic {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.chain-script-node .csn-tcode {
+  font-size: 11px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+.chain-script-node .csn-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 500;
+  word-break: break-word;
+}
+.chain-script-node .csn-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* If/Else node */
+.chain-ifelse-node {
+  background: var(--bg-card);
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  padding: 8px 14px;
+  min-width: 280px;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chain-ifelse-node .cie-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #f59e0b;
+  font-weight: 600;
+}
+.chain-ifelse-node .cie-contains-input {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  width: 160px;
+}
+.chain-ifelse-node .cie-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Branches layout */
+.chain-branches-row {
+  display: flex;
+  gap: 0;
+  justify-content: center;
+  width: 100%;
+  position: relative;
+}
+.chain-branch-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 280px;
+  flex: 1;
+  max-width: 420px;
+}
+.chain-branch-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  padding: 3px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-base);
+}
+.chain-branch-if .chain-branch-label  { color: var(--success); border-color: var(--success); }
+.chain-branch-else .chain-branch-label { color: var(--danger);  border-color: var(--danger); }
+
+/* Horizontal line connecting the two branches at top */
+.chain-branch-top-line {
+  position: relative;
+  width: 100%;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.chain-branch-top-line::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 25%;
+  right: 25%;
+  height: 2px;
+  background: var(--border);
+}
+.chain-branch-top-line::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 11px;
+  background: var(--border);
+  transform: translateX(-50%) translateY(-100%);
+}
+
+/* Add-node floating popup menu */
+.chain-add-menu {
+  position: fixed;
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 6px 4px;
+  z-index: 9000;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 170px;
+}
+.chain-add-menu button {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  padding: 8px 14px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 5px;
+  font-size: 13px;
+  transition: background 0.12s;
+}
+.chain-add-menu button:hover { background: var(--bg-hover); }
+
+/* Execution log modal steps */
+.exec-step {
+  border-left: 3px solid var(--border);
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: var(--bg-card);
+  border-radius: 0 6px 6px 0;
+}
+.exec-step.step-finished { border-color: var(--success); }
+.exec-step.step-failed   { border-color: var(--danger); }
+.exec-step.step-ifelse   { border-color: #f59e0b; }
+.exec-step .step-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.exec-step .step-output {
+  background: #0d0d0d;
+  color: #c8ffb0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-top: 6px;
 }

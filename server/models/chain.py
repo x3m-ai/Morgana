@@ -16,6 +16,7 @@ class Chain(Base):
     tcode_coverage = Column(Text)   # Comma-separated TCodes
     author = Column(String)
     tags = Column(String)           # JSON array
+    flow_json  = Column(Text, default='{"nodes":[]}')   # Visual flow definition
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

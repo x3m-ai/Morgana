@@ -12,6 +12,12 @@ const REFRESH_INTERVAL = 15000; // 15 seconds
 let allScripts = [];
 let refreshTimer = null;
 
+// Chain builder state
+let _allChains = [];
+let _editingChain = { id: null, name: "", description: "", nodes: [] };
+let _chainAddMenuCtx = null; // { branch, index, ifElseId }
+let _chainPickerCtx  = null; // { type: "insert"|"replace", nodeId, branch, ifElseId, index }
+
 // ─── Navigation ──────────────────────────────────────────────────────────────
 
 document.querySelectorAll(".nav-item").forEach((item) => {
@@ -36,6 +42,7 @@ function navigateTo(page) {
     case "agents":    loadAgents(); break;
     case "scripts":   loadScripts(); break;
     case "tests":     loadTests(); break;
+    case "chains":    loadChains(); break;
     case "tags":      loadTags(); break;
     case "admin":     loadAdminStatus(); break;
   }
@@ -1119,6 +1126,633 @@ async function toggleTagAssignment(entityType, entityId, tagId, assign) {
   }
 }
 
+
+
+// ─── Chains ───────────────────────────────────────────────────────────────────
+
+// ── List view ─────────────────────────────────────────────────────────────────
+
+async function loadChains() {
+  document.getElementById("chain-list-view").style.display  = "";
+  document.getElementById("chain-editor-view").style.display = "none";
+
+  const tbody = document.getElementById("chainListBody");
+  tbody.innerHTML = `<tr><td colspan="5" class="empty-row">Loading...</td></tr>`;
+  try {
+    _allChains = await apiFetch("/api/v2/chains");
+    _renderChainList();
+    loadChainExecutionsList();
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-row">Error: ${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+function _renderChainList() {
+  const tbody = document.getElementById("chainListBody");
+  if (!_allChains.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-row">No chains yet. Click "+ New Chain" to build one.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = _allChains.map((c) => {
+    const nodeCount = (c.flow && c.flow.nodes) ? c.flow.nodes.length : 0;
+    const updated   = c.updated_at ? c.updated_at.slice(0, 16).replace("T", " ") : "-";
+    return `<tr>
+      <td><strong>${escHtml(c.name)}</strong></td>
+      <td style="color:var(--text-secondary)">${escHtml(c.description || "-")}</td>
+      <td>${nodeCount}</td>
+      <td style="font-size:12px;color:var(--text-muted)">${escHtml(updated)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-open" onclick="editChain('${escHtml(c.id)}')">Open</button>
+        <button class="btn btn-danger btn-sm" style="margin-left:4px" onclick="deleteChain('${escHtml(c.id)}')">Delete</button>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+async function loadChainExecutionsList() {
+  const tbody = document.getElementById("chainExecsBody");
+  try {
+    const execs = await apiFetch("/api/v2/chains/executions");
+    if (!execs.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No executions yet</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = execs.slice(0, 50).map((e) => {
+      const started  = e.started_at  ? e.started_at.slice(0, 16).replace("T", " ")  : "-";
+      const finished = e.finished_at ? e.finished_at.slice(0, 16).replace("T", " ") : "-";
+      const stateCls = e.state === "completed" ? "var(--success)" : e.state === "failed" ? "var(--danger)" : "var(--warning)";
+      return `<tr>
+        <td>${escHtml(e.chain_name || "-")}</td>
+        <td style="font-size:12px">${escHtml(e.agent_paw || "-")} ${e.agent_hostname ? "(" + escHtml(e.agent_hostname) + ")" : ""}</td>
+        <td><span style="color:${stateCls};font-weight:600">${escHtml(e.state)}</span></td>
+        <td style="font-size:12px">${escHtml(started)}</td>
+        <td style="font-size:12px">${escHtml(finished)}</td>
+        <td><button class="btn-open" onclick="openChainExecLog('${escHtml(e.id)}')">Log</button></td>
+      </tr>`;
+    }).join("");
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">Error: ${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+// ── CRUD ──────────────────────────────────────────────────────────────────────
+
+function newChain() {
+  _editingChain = { id: null, name: "New Chain", description: "", nodes: [] };
+  _openChainEditor();
+}
+
+async function editChain(id) {
+  try {
+    const c = await apiFetch(`/api/v2/chains/${id}`);
+    _editingChain = {
+      id:          c.id,
+      name:        c.name,
+      description: c.description || "",
+      nodes:       (c.flow && c.flow.nodes) ? c.flow.nodes : [],
+    };
+    _openChainEditor();
+  } catch (err) {
+    alert("Could not load chain: " + err.message);
+  }
+}
+
+function _openChainEditor() {
+  document.getElementById("chain-list-view").style.display   = "none";
+  document.getElementById("chain-editor-view").style.display = "";
+  document.getElementById("chain-editor-title").textContent  = _editingChain.id ? _editingChain.name : "New Chain";
+  document.getElementById("chain-name-input").value          = _editingChain.name;
+  document.getElementById("chain-desc-input").value          = _editingChain.description;
+  const execBtn = document.getElementById("chain-exec-btn");
+  if (execBtn) execBtn.disabled = !_editingChain.id;
+  renderChainFlow();
+}
+
+function closeChainEditor() {
+  document.getElementById("chain-editor-view").style.display = "none";
+  document.getElementById("chain-list-view").style.display   = "";
+}
+
+async function saveChain() {
+  const name = (document.getElementById("chain-name-input").value || "").trim();
+  const desc = (document.getElementById("chain-desc-input").value || "").trim();
+  if (!name) { alert("Chain name is required."); return; }
+
+  _editingChain.name        = name;
+  _editingChain.description = desc;
+
+  const body = { name, description: desc, flow: { nodes: _editingChain.nodes } };
+  try {
+    let saved;
+    if (_editingChain.id) {
+      saved = await apiFetch(`/api/v2/chains/${_editingChain.id}`, { method: "PUT", body: JSON.stringify(body) });
+    } else {
+      saved = await apiFetch("/api/v2/chains", { method: "POST", body: JSON.stringify(body) });
+    }
+    _editingChain.id = saved.id;
+    document.getElementById("chain-editor-title").textContent = saved.name;
+    const execBtn = document.getElementById("chain-exec-btn");
+    if (execBtn) execBtn.disabled = false;
+    alert("Chain saved.");
+    loadChains();
+    _openChainEditor(); // keep editor open and re-render
+  } catch (err) {
+    alert("Save failed: " + err.message);
+  }
+}
+
+async function deleteChain(id) {
+  const c = _allChains.find((x) => x.id === id);
+  if (!confirm(`Delete chain "${c ? c.name : id}"? This cannot be undone.`)) return;
+  try {
+    await apiFetch(`/api/v2/chains/${id}`, { method: "DELETE" });
+    _allChains = _allChains.filter((x) => x.id !== id);
+    _renderChainList();
+  } catch (err) {
+    alert("Delete failed: " + err.message);
+  }
+}
+
+function exportChainJSON() {
+  if (!_editingChain.id) { alert("Save the chain first."); return; }
+  const c = _allChains.find((x) => x.id === _editingChain.id);
+  const data = c || { name: _editingChain.name, description: _editingChain.description, flow: { nodes: _editingChain.nodes } };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = (data.name || "chain").replace(/\s+/g, "_") + ".json";
+  a.click();
+}
+
+function importChainJSON() {
+  const input = document.createElement("input");
+  input.type   = "file";
+  input.accept = ".json,application/json";
+  input.onchange = async (ev) => {
+    const file = ev.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const saved = await apiFetch("/api/v2/chains/import", { method: "POST", body: JSON.stringify(data) });
+      _allChains.unshift(saved);
+      _renderChainList();
+      alert(`Imported: "${saved.name}"`);
+    } catch (err) {
+      alert("Import failed: " + err.message);
+    }
+  };
+  input.click();
+}
+
+// ── Execute ───────────────────────────────────────────────────────────────────
+
+async function executeChainFromEditor() {
+  if (!_editingChain.id) { alert("Save the chain first."); return; }
+  // Populate agent selector
+  const sel = document.getElementById("chain-exec-agent-sel");
+  sel.innerHTML = `<option value="">-- select agent --</option>`;
+  try {
+    const agents = await apiFetch("/api/v2/agents");
+    (agents || []).filter((a) => a.alive).forEach((a) => {
+      const opt = document.createElement("option");
+      opt.value       = a.paw;
+      opt.textContent = `${a.hostname || a.paw} [${a.paw}]`;
+      sel.appendChild(opt);
+    });
+  } catch (_) {}
+  document.getElementById("chainExecModal").classList.remove("hidden");
+}
+
+function closeChainExecModal() {
+  document.getElementById("chainExecModal").classList.add("hidden");
+}
+
+async function confirmExecuteChain() {
+  const paw = document.getElementById("chain-exec-agent-sel").value;
+  if (!paw) { alert("Select an agent first."); return; }
+  closeChainExecModal();
+  try {
+    const r = await apiFetch(`/api/v2/chains/${_editingChain.id}/execute`, {
+      method: "POST",
+      body: JSON.stringify({ agent_paw: paw }),
+    });
+    alert(`Chain execution started.\nExecution ID: ${r.execution_id}\n\nCheck the Executions list on the Chains page for the live log.`);
+    loadChainExecutionsList();
+  } catch (err) {
+    alert("Execute failed: " + err.message);
+  }
+}
+
+// ── Execution log modal ───────────────────────────────────────────────────────
+
+async function openChainExecLog(execId) {
+  document.getElementById("chainExecLogModal").classList.remove("hidden");
+  document.getElementById("chainExecLogTitle").textContent = "Execution Log (loading...)";
+  document.getElementById("chainExecLogBody").innerHTML    = `<p style="color:var(--text-muted)">Loading...</p>`;
+  try {
+    const data = await apiFetch(`/api/v2/chains/executions/${execId}/log`);
+    const title = `${data.chain_name} | ${data.agent_paw} | ${data.state.toUpperCase()}`;
+    document.getElementById("chainExecLogTitle").textContent = title;
+    document.getElementById("chainExecLogBody").innerHTML = _renderExecLog(data);
+  } catch (err) {
+    document.getElementById("chainExecLogBody").innerHTML = `<p style="color:var(--danger)">Error: ${escHtml(err.message)}</p>`;
+  }
+}
+
+function closeChainExecLog() {
+  document.getElementById("chainExecLogModal").classList.add("hidden");
+}
+
+function _renderExecLog(data) {
+  let html = `<div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:16px;color:var(--text-secondary);font-size:13px">
+    <span>Chain: <strong style="color:var(--text-primary)">${escHtml(data.chain_name)}</strong></span>
+    <span>Agent: <strong style="color:var(--text-primary)">${escHtml(data.agent_paw)}</strong></span>
+    <span>State: <strong style="color:${data.state === "completed" ? "var(--success)" : data.state === "failed" ? "var(--danger)" : "var(--warning)"}">${escHtml(data.state)}</strong></span>
+    ${data.started_at  ? `<span>Started: ${escHtml(data.started_at.slice(0, 19).replace("T", " "))}</span>`  : ""}
+    ${data.finished_at ? `<span>Finished: ${escHtml(data.finished_at.slice(0, 19).replace("T", " "))}</span>` : ""}
+    ${data.error       ? `<span style="color:var(--danger)">Error: ${escHtml(data.error)}</span>`              : ""}
+  </div>`;
+  const steps = data.steps || [];
+  if (!steps.length) {
+    html += `<p style="color:var(--text-muted)">No steps recorded yet (chain may still be running).</p>`;
+    return html;
+  }
+  steps.forEach((s, i) => {
+    if (s.type === "if_else") {
+      html += `<div class="exec-step step-ifelse">
+        <div class="step-header">
+          <span style="color:#f59e0b;font-weight:600">[IF/ELSE]</span>
+          <span style="font-size:12px">contains: <code>${escHtml(s.contains || "(empty)")}</code></span>
+          <span style="font-size:12px;color:${s.matched ? "var(--success)" : "var(--danger)"}">
+            matched: ${s.matched ? "YES" : "NO"} &rarr; branch: <strong>${escHtml(s.branch_taken)}</strong>
+          </span>
+        </div>
+        ${s.last_stdout_snippet ? `<div class="step-output">${escHtml(s.last_stdout_snippet)}</div>` : ""}
+      </div>`;
+    } else {
+      const cls = s.state === "finished" ? "step-finished" : s.state === "failed" ? "step-failed" : "";
+      html += `<div class="exec-step ${cls}">
+        <div class="step-header">
+          <span style="font-size:11px;color:var(--text-muted)">#${i + 1}</span>
+          <span class="tcode">${escHtml(s.tcode || "?")}</span>
+          <span style="font-weight:500">${escHtml(s.name || "?")}</span>
+          <span style="color:${s.state === "finished" ? "var(--success)" : "var(--danger)"}">
+            ${escHtml(s.state || "?")} (exit ${s.exit_code != null ? s.exit_code : "?"})
+          </span>
+        </div>
+        ${(s.stdout || s.stderr) ? `<div class="step-output">${escHtml((s.stdout || "") + (s.stderr ? "\n--- stderr ---\n" + s.stderr : ""))}</div>` : ""}
+      </div>`;
+    }
+  });
+  return html;
+}
+
+// ── Flow renderer ─────────────────────────────────────────────────────────────
+
+function renderChainFlow() {
+  const container = document.getElementById("chain-flow");
+  if (!container) return;
+  container.innerHTML = _buildFlowHTML(_editingChain.nodes, "root", null);
+}
+
+function _buildFlowHTML(nodes, branch, ifElseId) {
+  let html = "";
+
+  // Start dot (only for root level)
+  if (branch === "root") {
+    html += `<div class="chain-start-dot" title="Start"></div>`;
+  }
+
+  // Add button before first node
+  html += _addBtnHTML(branch, 0, ifElseId);
+
+  nodes.forEach((node, idx) => {
+    if (node.type === "if_else") {
+      html += `<div class="chain-vline"></div>`;
+      html += _renderIfElseNodeHTML(node, branch, ifElseId);
+    } else {
+      html += `<div class="chain-vline"></div>`;
+      html += _renderScriptNodeHTML(node, branch, ifElseId);
+    }
+    // Add button after this node
+    html += _addBtnHTML(branch, idx + 1, ifElseId);
+  });
+
+  return html;
+}
+
+function _renderScriptNodeHTML(node, branch, ifElseId) {
+  const nid = escHtml(node.id);
+  const br  = escHtml(branch);
+  const iid = ifElseId ? escHtml(ifElseId) : "null";
+  return `
+    <div class="chain-script-node" id="cnode-${nid}">
+      <div class="csn-tactic">${escHtml(node.tactic || "-")}</div>
+      <div class="csn-tcode">${escHtml(node.tcode || "?")}</div>
+      <div class="csn-name">${escHtml(node.script_name || "Unknown Script")}</div>
+      <div class="csn-actions">
+        <button class="btn btn-secondary btn-sm" onclick="replaceChainScript('${nid}','${br}','${iid}')">Change</button>
+        <button class="btn btn-danger btn-sm"    onclick="removeChainNode('${nid}','${br}','${iid}')">Remove</button>
+      </div>
+    </div>`;
+}
+
+function _renderIfElseNodeHTML(node, branch, ifElseId) {
+  const nid = escHtml(node.id);
+  const br  = escHtml(branch);
+  const iid = ifElseId ? escHtml(ifElseId) : "null";
+  const containsVal = escHtml(node.contains || "");
+  return `
+    <div class="chain-ifelse-node" id="cnode-${nid}">
+      <div class="cie-header">
+        [IF/ELSE]
+        <input type="text" class="cie-contains-input"
+          placeholder="stdout contains..."
+          value="${containsVal}"
+          oninput="updateIfElseContains('${nid}', this.value)" />
+        <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="removeChainNode('${nid}','${br}','${iid}')">Remove</button>
+      </div>
+      <div class="cie-hint">Branch taken when stdout of previous step CONTAINS the text above.</div>
+    </div>
+    <div class="chain-branches-row">
+      <div class="chain-branch-col chain-branch-if">
+        <div class="chain-vline"></div>
+        <div class="chain-branch-label">IF TRUE</div>
+        ${_buildFlowHTML(node.if_nodes || [], "if_nodes", node.id)}
+      </div>
+      <div class="chain-branch-col chain-branch-else">
+        <div class="chain-vline"></div>
+        <div class="chain-branch-label">ELSE</div>
+        ${_buildFlowHTML(node.else_nodes || [], "else_nodes", node.id)}
+      </div>
+    </div>`;
+}
+
+function _addBtnHTML(branch, index, ifElseId) {
+  const br  = escHtml(branch);
+  const iid = ifElseId ? escHtml(ifElseId) : "null";
+  return `<div class="chain-add-btn"
+    onclick="openChainAddMenu(event,'${br}',${index},'${iid}')"
+    title="Add node">+</div>`;
+}
+
+// ── Add-node popup menu ───────────────────────────────────────────────────────
+
+function openChainAddMenu(event, branch, index, ifElseIdStr) {
+  const ifElseId = (ifElseIdStr === "null") ? null : ifElseIdStr;
+  _chainAddMenuCtx = { branch, index, ifElseId };
+
+  const menu = document.getElementById("chainAddMenu");
+  menu.classList.remove("hidden");
+  menu.style.left = (event.clientX + 8) + "px";
+  menu.style.top  = (event.clientY + 8) + "px";
+
+  // Close on outside click
+  setTimeout(() => {
+    document.addEventListener("click", _closeChainAddMenuIfOutside, { once: true });
+  }, 50);
+}
+
+function _closeChainAddMenuIfOutside(ev) {
+  const menu = document.getElementById("chainAddMenu");
+  if (!menu.contains(ev.target)) closeChainAddMenu();
+}
+
+function closeChainAddMenu() {
+  document.getElementById("chainAddMenu").classList.add("hidden");
+  _chainAddMenuCtx = null;
+}
+
+function chainMenuAddScript() {
+  const ctx = _chainAddMenuCtx; // save BEFORE close (close nulls it)
+  closeChainAddMenu();
+  if (!ctx) return;
+  _chainPickerCtx = { type: "insert", ...ctx };
+  _openChainScriptPicker();
+}
+
+function chainMenuAddIfElse() {
+  const ctx = _chainAddMenuCtx; // save BEFORE close (close nulls it)
+  closeChainAddMenu();
+  if (!ctx) return;
+  const { branch, index, ifElseId } = ctx;
+  const node = {
+    id:         _genNodeId(),
+    type:       "if_else",
+    contains:   "",
+    if_nodes:   [],
+    else_nodes: [],
+  };
+  _insertNodeAt(_editingChain.nodes, node, branch, index, ifElseId);
+  renderChainFlow();
+}
+
+// ── Script picker (re-uses allScripts) ───────────────────────────────────────
+
+function _openChainScriptPicker() {
+  // Ensure scripts are loaded
+  if (!allScripts.length) {
+    apiFetch("/api/v2/scripts").then((scripts) => {
+      allScripts = scripts;
+      populateTacticDropdown();
+      _populateCspTacticDropdown();
+      _renderCspTable(allScripts);
+    }).catch(() => _renderCspTable([]));
+  } else {
+    _populateCspTacticDropdown();
+    _renderCspTable(allScripts);
+  }
+  document.getElementById("csp-search").value   = "";
+  document.getElementById("csp-executor").value = "";
+  document.getElementById("csp-platform").value = "";
+  document.getElementById("chainScriptPickerModal").classList.remove("hidden");
+}
+
+function closeChainScriptPicker() {
+  document.getElementById("chainScriptPickerModal").classList.add("hidden");
+  _chainPickerCtx = null;
+}
+
+function _populateCspTacticDropdown() {
+  const sel = document.getElementById("csp-tactic");
+  if (!sel) return;
+  const tactics = [...new Set(allScripts.map((s) => s.tactic).filter(Boolean))].sort();
+  sel.innerHTML = `<option value="">All tactics</option>` +
+    tactics.map((t) => `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join("");
+}
+
+function filterCsp() {
+  const q    = (document.getElementById("csp-search").value || "").toLowerCase();
+  const tac  = document.getElementById("csp-tactic").value;
+  const exec = document.getElementById("csp-executor").value;
+  const plat = document.getElementById("csp-platform").value;
+  const filtered = allScripts.filter((s) => {
+    const mq = !q    || (s.tcode || "").toLowerCase().includes(q) || (s.name || "").toLowerCase().includes(q);
+    const mt = !tac  || s.tactic   === tac;
+    const me = !exec || s.executor === exec;
+    const mp = !plat || (s.platform || "all").includes(plat) || s.platform === "all";
+    return mq && mt && me && mp;
+  });
+  _renderCspTable(filtered);
+}
+
+function _renderCspTable(scripts) {
+  const tbody = document.getElementById("cspTableBody");
+  if (!tbody) return;
+  if (!scripts.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No scripts match the filter.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = scripts.slice(0, 400).map((s) => `
+    <tr>
+      <td><span class="tcode">${escHtml(s.tcode || "?")}</span></td>
+      <td>${escHtml(s.name || "?")}</td>
+      <td>${escHtml(s.tactic || "-")}</td>
+      <td><code>${escHtml(s.executor || "?")}</code></td>
+      <td>${escHtml(s.platform || "all")}</td>
+      <td><button class="btn btn-primary btn-sm" onclick="chainPickScript('${escHtml(s.id)}')">Insert</button></td>
+    </tr>`).join("");
+}
+
+function chainPickScript(scriptId) {
+  const s = allScripts.find((x) => x.id === scriptId);
+  if (!s || !_chainPickerCtx) return;
+  closeChainScriptPicker();
+
+  if (_chainPickerCtx.type === "replace") {
+    // Replace the node already in the tree
+    const nid = _chainPickerCtx.nodeId;
+    _walkAndReplace(_editingChain.nodes, nid, s);
+  } else {
+    // Insert new node at position
+    const { branch, index, ifElseId } = _chainPickerCtx;
+    const node = {
+      id:          _genNodeId(),
+      type:        "script",
+      script_id:   s.id,
+      script_name: s.name,
+      tcode:       s.tcode,
+      tactic:      s.tactic,
+    };
+    _insertNodeAt(_editingChain.nodes, node, branch, index, ifElseId);
+  }
+  _chainPickerCtx = null;
+  renderChainFlow();
+}
+
+function replaceChainScript(nodeId, branch, ifElseIdStr) {
+  const ifElseId = (ifElseIdStr === "null") ? null : ifElseIdStr;
+  _chainPickerCtx = { type: "replace", nodeId, branch, ifElseId };
+  _openChainScriptPicker();
+}
+
+// ── Remove node ───────────────────────────────────────────────────────────────
+
+function removeChainNode(nodeId, branch, ifElseIdStr) {
+  if (!confirm("Remove this node and all nodes below it in this branch?")) return;
+  const ifElseId = (ifElseIdStr === "null") ? null : ifElseIdStr;
+  _walkAndRemove(_editingChain.nodes, nodeId, branch, ifElseId);
+  renderChainFlow();
+}
+
+// ── If/Else contains field ────────────────────────────────────────────────────
+
+function updateIfElseContains(nodeId, value) {
+  _walkAndUpdateContains(_editingChain.nodes, nodeId, value);
+}
+
+// ── Internal tree helpers ─────────────────────────────────────────────────────
+
+function _genNodeId() {
+  return "n" + Math.random().toString(36).slice(2, 9);
+}
+
+/**
+ * Insert a node into the right place in the tree.
+ * - branch = "root"       -> top-level nodes array
+ * - branch = "if_nodes"   -> if_nodes of the if/else with ifElseId
+ * - branch = "else_nodes" -> else_nodes of the if/else with ifElseId
+ */
+function _insertNodeAt(nodes, newNode, branch, index, ifElseId) {
+  if (!ifElseId || branch === "root") {
+    nodes.splice(index, 0, newNode);
+    return true;
+  }
+  for (const n of nodes) {
+    if (n.type === "if_else") {
+      if (n.id === ifElseId) {
+        const arr = n[branch] || [];
+        arr.splice(index, 0, newNode);
+        n[branch] = arr;
+        return true;
+      }
+      // recurse into sub-branches
+      if (_insertNodeAt(n.if_nodes   || [], newNode, branch, index, ifElseId)) return true;
+      if (_insertNodeAt(n.else_nodes || [], newNode, branch, index, ifElseId)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Remove node with nodeId and all nodes AFTER it in its branch (truncation),
+ * from the given branch context.  Simple approach: find the node, truncate
+ * the array from that index onwards.
+ */
+function _walkAndRemove(nodes, nodeId, branch, ifElseId) {
+  // Try in root / current list
+  const idx = nodes.findIndex((n) => n.id === nodeId);
+  if (idx !== -1) {
+    nodes.splice(idx); // remove node + all following in this branch
+    return true;
+  }
+  // Recurse into if/else sub-branches
+  for (const n of nodes) {
+    if (n.type === "if_else") {
+      if (_walkAndRemove(n.if_nodes   || [], nodeId, "if_nodes",   n.id)) return true;
+      if (_walkAndRemove(n.else_nodes || [], nodeId, "else_nodes", n.id)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Replace the script details of an existing script node.
+ */
+function _walkAndReplace(nodes, nodeId, scriptObj) {
+  for (const n of nodes) {
+    if (n.id === nodeId && n.type === "script") {
+      n.script_id   = scriptObj.id;
+      n.script_name = scriptObj.name;
+      n.tcode       = scriptObj.tcode;
+      n.tactic      = scriptObj.tactic;
+      return true;
+    }
+    if (n.type === "if_else") {
+      if (_walkAndReplace(n.if_nodes   || [], nodeId, scriptObj)) return true;
+      if (_walkAndReplace(n.else_nodes || [], nodeId, scriptObj)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Update the 'contains' field of an if/else node.
+ */
+function _walkAndUpdateContains(nodes, nodeId, value) {
+  for (const n of nodes) {
+    if (n.id === nodeId && n.type === "if_else") {
+      n.contains = value;
+      return true;
+    }
+    if (n.type === "if_else") {
+      if (_walkAndUpdateContains(n.if_nodes   || [], nodeId, value)) return true;
+      if (_walkAndUpdateContains(n.else_nodes || [], nodeId, value)) return true;
+    }
+  }
+  return false;
+}
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 

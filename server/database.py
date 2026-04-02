@@ -32,7 +32,7 @@ Base = declarative_base()
 
 def init_db():
     """Create all tables and apply lightweight migrations."""
-    from models import script, chain, agent, test, campaign, job, tag  # noqa: F401 - import to register models
+    from models import script, chain, chain_execution, agent, test, campaign, job, tag  # noqa: F401 - import to register models
     Base.metadata.create_all(bind=engine)
     _migrate()
     _seed()
@@ -65,6 +65,7 @@ def _migrate():
     """Add new nullable columns to existing tables (idempotent)."""
     migrations = [
         ("agents", "alias", "TEXT"),
+        ("chains", "flow_json", "TEXT"),
     ]
     with engine.connect() as conn:
         for table, col, col_type in migrations:
