@@ -35,6 +35,7 @@ async def realtime(
 
     tests = db.query(Test).filter(Test.created_at >= since).all()
     agents = db.query(Agent).all()
+    agents_by_id = {a.id: a for a in agents}
 
     operations = []
     for t in tests:
@@ -42,13 +43,32 @@ async def realtime(
         success = 1 if t.exit_code == 0 and t.state == "finished" else 0
         failed = 1 if t.exit_code not in (None, 0) and t.state in ("failed", "finished") else 0
         running = 1 if t.state == "running" else 0
+        ag = agents_by_id.get(t.agent_id)
+        op_name = t.operation_name or ""
+        if op_name.startswith("chain:"):
+            test_type = "Chain"
+            test_name = op_name[6:] or t.id
+        elif op_name.startswith("manual:"):
+            test_type = "Script"
+            test_name = op_name[7:] or t.id
+        elif op_name == "adhoc":
+            test_type = "Script"
+            test_name = "Ad-hoc"
+        else:
+            test_type = "Script"
+            test_name = op_name or t.id
         operations.append({
             "id": t.operation_id or t.id,
             "name": t.operation_name or t.id,
+            "type": test_type,
+            "op_name": test_name,
             "adversary": t.adversary_name,
             "state": t.state,
             "started": t.started_at.isoformat() if t.started_at else t.created_at.isoformat() if t.created_at else None,
             "finish_time": t.finished_at.isoformat() if t.finished_at else None,
+            "duration_ms": t.duration_ms,
+            "agent_paw": ag.paw if ag else "",
+            "agent_hostname": ag.hostname if ag else "",
             "total_abilities": len(tcodes) or 1,
             "success_count": success,
             "error_count": failed,

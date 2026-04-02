@@ -114,20 +114,34 @@ async function refreshDashboard() {
 function renderRecentTests(operations) {
   const tbody = document.getElementById("recentTestsBody");
   if (!operations.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-row">No tests in the last hour</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-row">No tests in the last hour</td></tr>`;
     return;
   }
-  tbody.innerHTML = operations.slice(0, 20).map((op) => `
-    <tr>
-      <td>${op.tcodes ? op.tcodes.map((t) => `<span class="tcode">${t}</span>`).join(" ") : "-"}</td>
-      <td>${escHtml(op.name || "-")}</td>
-      <td>${escHtml(op.adversary || "-")}</td>
+  tbody.innerHTML = operations.slice(0, 20).map((op) => {
+    const tcode = op.tcodes && op.tcodes.length
+      ? op.tcodes.map((t) => `<span class="tcode">${t}</span>`).join(" ")
+      : "-";
+    const typeBadge = op.type === "Chain"
+      ? `<span style="color:#f59e0b;font-size:11px">Chain</span>`
+      : `<span style="color:var(--accent);font-size:11px">Script</span>`;
+    const agent = op.agent_hostname
+      ? `${escHtml(op.agent_hostname)} [${escHtml(op.agent_paw || "")}]`
+      : (op.agent_paw ? escHtml(op.agent_paw) : "-");
+    const dur = op.duration_ms != null ? `${op.duration_ms} ms` : "-";
+    const exit = op.error_count > 0
+      ? `<span style="color:var(--danger)">${op.error_count} err</span>`
+      : `<span style="color:var(--success)">${op.success_count} ok</span>`;
+    return `<tr>
+      <td>${tcode}</td>
+      <td>${typeBadge}</td>
+      <td>${escHtml(op.op_name || op.name || "-")}</td>
+      <td>${agent}</td>
       <td>${stateBadge(op.state)}</td>
-      <td>${op.error_count > 0 ? `<span style="color:var(--danger)">${op.error_count}</span>` : `<span style="color:var(--success)">${op.success_count}</span>`}</td>
-      <td>${fmtDate(op.started)}</td>
-      <td>-</td>
-    </tr>
-  `).join("");
+      <td>${exit}</td>
+      <td style="white-space:nowrap;font-size:0.8rem">${fmtDateTime(op.started)}</td>
+      <td style="white-space:nowrap">${dur}</td>
+    </tr>`;
+  }).join("");
 }
 
 function renderAgentsGrid(agents) {
@@ -336,18 +350,27 @@ async function loadTests() {
   try {
     const tests = await apiFetch("/api/v2/tests?limit=200");
     if (!tests.length) {
-      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">No tests yet</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" class="empty-row">No tests yet</td></tr>`;
       return;
     }
     tbody.innerHTML = tests.map((t) => {
       const agent = t.agent_hostname ? `${escHtml(t.agent_hostname)} [${escHtml(t.agent_paw || "")}]` : "-";
       const dur = t.duration_ms != null ? `${t.duration_ms} ms` : "-";
       const tcode = t.tcode ? `<span class="tcode">${escHtml(t.tcode)}</span>` : "-";
-      const op = escHtml(t.operation_name || "-");
+      const opName = t.operation_name || "";
+      let testType, testName;
+      if (opName.startsWith("chain:"))       { testType = "Chain";  testName = opName.slice(6) || "-"; }
+      else if (opName.startsWith("manual:")) { testType = "Script"; testName = opName.slice(7) || "-"; }
+      else if (opName === "adhoc")           { testType = "Script"; testName = "Ad-hoc"; }
+      else                                   { testType = "Script"; testName = opName || "-"; }
+      const typeBadge = testType === "Chain"
+        ? `<span style="color:#f59e0b;font-size:11px">Chain</span>`
+        : `<span style="color:var(--accent);font-size:11px">Script</span>`;
       return `<tr>
         <td style="white-space:nowrap;font-size:0.8rem">${fmtDateTime(t.created_at)}</td>
         <td>${tcode}</td>
-        <td>${op}</td>
+        <td>${typeBadge}</td>
+        <td>${escHtml(testName)}</td>
         <td>${escHtml(agent)}</td>
         <td>${stateBadge(t.state)}</td>
         <td style="text-align:center">${t.exit_code != null ? t.exit_code : "-"}</td>
@@ -359,7 +382,7 @@ async function loadTests() {
       </tr>`;
     }).join("");
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-row">Error: ${escHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-row">Error: ${escHtml(err.message)}</td></tr>`;
     console.error("[TESTS] Load failed:", err.message);
   }
 }

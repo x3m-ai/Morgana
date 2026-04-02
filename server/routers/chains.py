@@ -410,7 +410,7 @@ def _run_script_node(db: Session, node: dict, agent_paw: str, step_logs: list) -
         script_id=s.id,
         tcode=s.tcode,
         agent_id=agent.id,
-        operation_name=f"chain:{node_id}",
+        operation_name=f"chain:{s.name}",
         state="pending",
     )
     db.add(test)

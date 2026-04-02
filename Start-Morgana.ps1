@@ -146,17 +146,33 @@ if ($NoWindow) {
     $proc = Start-Process @startArgs
     $proc.Id | Set-Content $PidFile -Encoding ASCII
 
-    Start-Sleep -Seconds 2
+    # Poll for up to 120 seconds (fix_tactics takes ~40-45s on first run)
+    $maxWait  = 120
+    $interval = 3
+    $elapsed  = 0
+    $ready    = $false
+    Write-Step "Waiting for server to start (may take up to ${maxWait}s while atomic loader runs) ..."
+    while ($elapsed -lt $maxWait) {
+        Start-Sleep -Seconds $interval
+        $elapsed += $interval
+        $portPid = Get-ProcessOnPort $Port
+        if ($portPid) {
+            $ready = $true
+            break
+        }
+        # Also stop polling if the process died
+        if ($proc.HasExited) {
+            break
+        }
+    }
 
-    # Quick health check
-    $portPid = Get-ProcessOnPort $Port
-    if ($portPid) {
-        Write-Ok "Morgana started in background (PID $($proc.Id))"
+    if ($ready) {
+        Write-Ok "Morgana started in background (PID $($proc.Id)) after ${elapsed}s"
         Write-Ok "URL:  https://localhost:$Port/ui/"
         Write-Ok "PID file: $PidFile"
         Write-Ok "Log:  $LogFile"
     } else {
-        Write-Warn "Process launched but port $Port not yet listening - server may still be initializing."
+        Write-Warn "Process launched but port $Port not yet listening after ${elapsed}s - server may still be initializing."
         Write-Warn "Check log: $LogFile"
     }
 } else {
