@@ -91,21 +91,32 @@ async def _tcp_relay(port: int, ws_url: str) -> None:
         ssl_ctx.verify_mode = _ssl.CERT_NONE
 
     async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        addr = writer.get_extra_info("peername")
+        log.info("[CONSOLE] TCP relay: client connected from %s (port %d)", addr, port)
         try:
             async with websockets.connect(ws_url, ssl=ssl_ctx) as ws:
+                log.info("[CONSOLE] TCP relay: WS connected to %s", ws_url.split("?")[0])
 
                 async def tcp_to_ws():
+                    total = 0
                     while True:
                         data = await reader.read(4096)
                         if not data:
+                            log.info("[CONSOLE] TCP relay: tcp_to_ws EOF (sent %d bytes total)", total)
                             break
+                        total += len(data)
+                        log.info("[CONSOLE] TCP relay: TCP->WS %d bytes (total=%d)", len(data), total)
                         await ws.send(data.decode("utf-8", errors="replace"))
 
                 async def ws_to_tcp():
+                    total = 0
                     async for msg in ws:
                         b = msg.encode("utf-8") if isinstance(msg, str) else msg
+                        total += len(b)
+                        log.info("[CONSOLE] TCP relay: WS->TCP %d bytes (total=%d)", len(b), total)
                         writer.write(b)
                         await writer.drain()
+                    log.info("[CONSOLE] TCP relay: ws_to_tcp WS closed (sent %d bytes total)", total)
 
                 done, pending = await asyncio.wait(
                     [asyncio.ensure_future(tcp_to_ws()),
@@ -114,8 +125,9 @@ async def _tcp_relay(port: int, ws_url: str) -> None:
                 )
                 for t in pending:
                     t.cancel()
+                log.info("[CONSOLE] TCP relay: bridge ended for port %d", port)
         except Exception as exc:
-            log.debug("[CONSOLE] TCP relay error: %s", exc)
+            log.warning("[CONSOLE] TCP relay error: %s", exc)
         finally:
             try:
                 writer.close()
@@ -175,12 +187,32 @@ async def open_native_console(
 
     if sys.platform == "win32":
         # PowerShell script: TCP connect + Console.ReadKey($true) for keyboard
+        log_path = tempfile.gettempdir() + "\\morgana-console.log"
         ps_script = textwrap.dedent(f"""\
             $host.UI.RawUI.WindowTitle = 'Morgana - {hostname}'
+            $script:logFile = '{log_path}'
+            function Write-Log {{
+                param([string]$msg)
+                $ts = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ss')
+                $line = "$ts $msg"
+                Add-Content -Path $script:logFile -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue
+                Write-Host $line
+            }}
+            try {{
+            Write-Log '[START] Morgana console connecting to TCP relay on port {port}'
             # Intercept Ctrl+C so it goes to the remote shell, not kills this script
             [System.Console]::TreatControlCAsInput = $true
             $tcp = New-Object System.Net.Sockets.TcpClient
-            $tcp.Connect('127.0.0.1', {port})
+            try {{
+                $tcp.Connect('127.0.0.1', {port})
+            }} catch {{
+                Write-Log "[ERROR] TCP connect failed on port {port}: $_"
+                Write-Host ''
+                Write-Host 'Press any key to close...'
+                $null = $host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+                exit 1
+            }}
+            Write-Log '[OK] TCP connected to relay port {port}'
             $stream = $tcp.GetStream()
             $enc = [System.Text.Encoding]::UTF8
 
@@ -194,11 +226,30 @@ async def open_native_console(
             $ps2.Runspace = $rs
             [void]$ps2.AddScript({{
                 $buf = New-Object byte[] 4096
+                # Suppress the prompt until we have received at least one chunk
+                # from cmd.exe (the Windows banner). This avoids a premature
+                # "> " appearing before the shell is ready.
+                $gotFirstData = $false
+                $promptShown  = $true   # start suppressed
                 while ($true) {{
                     try {{
-                        $n = $stream.Read($buf, 0, 4096)
-                        if ($n -le 0) {{ break }}
-                        [System.Console]::Write($enc.GetString($buf, 0, $n))
+                        if ($stream.DataAvailable) {{
+                            $n = $stream.Read($buf, 0, 4096)
+                            if ($n -le 0) {{ break }}
+                            [System.Console]::Write($enc.GetString($buf, 0, $n))
+                            $gotFirstData = $true
+                            $promptShown  = $false
+                        }} else {{
+                            Start-Sleep -Milliseconds 50
+                            # After output stops (150 ms silence), show prompt
+                            if ($gotFirstData -and -not $promptShown -and -not $stream.DataAvailable) {{
+                                Start-Sleep -Milliseconds 100
+                                if (-not $stream.DataAvailable) {{
+                                    [System.Console]::Write("`nC:\merlino> ")
+                                    $promptShown = $true
+                                }}
+                            }}
+                        }}
                     }} catch {{ break }}
                 }}
             }})
@@ -226,9 +277,9 @@ async def open_native_console(
                         }}
                         $histIdx = -1
                         $curLine = ''
-                        # Send only \r\n - the chars were already sent one by one
+                        # Send CR+LF to cmd.exe so the command line gets executed.
+                        # Individual printable chars were already sent one by one.
                         $bytes = $enc.GetBytes("`r`n")
-
                     }} elseif ($key.Key -eq [System.ConsoleKey]::Backspace) {{
                         if ($curLine.Length -gt 0) {{
                             $curLine = $curLine.Substring(0, $curLine.Length - 1)
@@ -290,9 +341,17 @@ async def open_native_console(
                     $stream.Write($bytes, 0, $bytes.Length)
                     $stream.Flush()
                 }}
-            }} catch {{}}
+            }} catch {{
+                Write-Log "[ERROR] Console keyboard loop exception: $_"
+            }}
 
             $tcp.Close()
+            Write-Log '[END] Console session ended'
+            }} catch {{
+                Write-Log "[FATAL] Unhandled exception: $_"
+                Write-Host ''
+                Write-Host "[FATAL] $_"
+            }}
             Write-Host ''
             Write-Host '[MORGANA] Session closed. Press Enter to close...'
             Read-Host
@@ -305,11 +364,17 @@ async def open_native_console(
         )
         tf.write(ps_script)
         tf.close()
+        log.info("[CONSOLE] PS1 temp script written to %s", tf.name)
 
-        subprocess.Popen(
-            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tf.name],
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
-        )
+        try:
+            proc = subprocess.Popen(
+                ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tf.name],
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+            log.info("[CONSOLE] PowerShell window spawned, PID=%d, port=%d", proc.pid, port)
+        except Exception as exc:
+            log.error("[CONSOLE] Failed to spawn PowerShell window: %s", exc)
+            raise HTTPException(status_code=500, detail=f"Failed to spawn console: {exc}")
 
     else:
         # Linux/macOS: Python bridge fallback (Console.ReadKey not available)
@@ -371,26 +436,32 @@ async def browser_connect(
 
         async def browser_to_agent() -> None:
             """Forward browser keystrokes to the agent shell."""
+            log.info("[CONSOLE] browser_to_agent: start (paw=%s)", paw)
             try:
                 while True:
                     data = await websocket.receive_text()
+                    log.info("[CONSOLE] browser_to_agent: got %d bytes from TCP relay", len(data))
                     if sess.agent_ws:
                         await sess.agent_ws.send_text(data)
-            except (WebSocketDisconnect, RuntimeError):
-                pass
+                    else:
+                        log.warning("[CONSOLE] browser_to_agent: agent_ws is None, dropping data")
+            except (WebSocketDisconnect, RuntimeError) as exc:
+                log.info("[CONSOLE] browser_to_agent: ended (%s)", exc)
             except Exception as exc:
-                log.debug("[CONSOLE] browser_to_agent error: %s", exc)
+                log.warning("[CONSOLE] browser_to_agent error: %s", exc)
 
         async def agent_to_browser() -> None:
             """Forward agent shell output to the browser."""
+            log.info("[CONSOLE] agent_to_browser: start (paw=%s)", paw)
             try:
                 while True:
                     data = await sess.agent_ws.receive_text()
+                    log.info("[CONSOLE] agent_to_browser: got %d bytes from agent", len(data))
                     await websocket.send_text(data)
-            except (WebSocketDisconnect, RuntimeError):
-                pass
+            except (WebSocketDisconnect, RuntimeError) as exc:
+                log.info("[CONSOLE] agent_to_browser: ended (%s)", exc)
             except Exception as exc:
-                log.debug("[CONSOLE] agent_to_browser error: %s", exc)
+                log.warning("[CONSOLE] agent_to_browser error: %s", exc)
 
         await asyncio.gather(browser_to_agent(), agent_to_browser(), return_exceptions=True)
 

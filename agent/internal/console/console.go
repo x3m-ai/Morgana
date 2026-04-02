@@ -111,12 +111,6 @@ func (h *Handler) Open(consolePaw string) {
 		return
 	}
 
-	// Suppress cmd.exe command echo without using /Q flag (which breaks piped stdin).
-	// @echo off makes cmd.exe not repeat each command line before executing it.
-	if runtime.GOOS == "windows" {
-		_, _ = stdinPipe.Write([]byte("@echo off\r\n"))
-	}
-
 	h.log.Info("[CONSOLE] Shell started", map[string]any{
 		"shell": shell,
 		"pid":   cmd.Process.Pid,
@@ -126,6 +120,11 @@ func (h *Handler) Open(consolePaw string) {
 	var wg sync.WaitGroup
 	done := make(chan struct{})
 
+	// writeMu serialises all conn.WriteMessage calls.
+	// gorilla/websocket does NOT support concurrent writers - each goroutine
+	// (stdout pipe, stderr pipe, exit banner) must take this lock before writing.
+	var writeMu sync.Mutex
+
 	// WS -> shell stdin
 	wg.Add(1)
 	go func() {
@@ -134,13 +133,17 @@ func (h *Handler) Open(consolePaw string) {
 		for {
 			_, msg, err := conn.ReadMessage()
 			if err != nil {
+				h.log.Warn("[CONSOLE] WS read error (stdin goroutine exiting)", map[string]any{"error": err.Error()})
 				break
 			}
+			h.log.Debug("[CONSOLE] WS->stdin: writing %d bytes", map[string]any{"n": len(msg)})
 			if _, err := stdinPipe.Write(msg); err != nil {
+				h.log.Warn("[CONSOLE] stdin write error", map[string]any{"error": err.Error()})
 				break
 			}
 		}
-		// WS disconnected: kill shell
+		// WS disconnected or stdin broken: kill shell
+		h.log.Info("[CONSOLE] WS->stdin goroutine exiting, killing shell", nil)
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
@@ -150,45 +153,61 @@ func (h *Handler) Open(consolePaw string) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		pipe(conn, stdoutPipe)
+		h.log.Debug("[CONSOLE] stdout->WS goroutine started", nil)
+		pipeToWS(conn, stdoutPipe, "stdout", &writeMu, h)
+		h.log.Debug("[CONSOLE] stdout->WS goroutine done", nil)
 	}()
 
 	// shell stderr -> WS
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		pipe(conn, stderrPipe)
+		h.log.Debug("[CONSOLE] stderr->WS goroutine started", nil)
+		pipeToWS(conn, stderrPipe, "stderr", &writeMu, h)
+		h.log.Debug("[CONSOLE] stderr->WS goroutine done", nil)
 	}()
 
 	// Wait for shell to exit
 	exitErr := cmd.Wait()
+	h.log.Info("[CONSOLE] Shell exited", map[string]any{"err": exitErr})
 	exitMsg := "\r\n[CONSOLE] Shell exited."
 	if exitErr != nil {
 		exitMsg += " (" + exitErr.Error() + ")"
 	}
 	exitMsg += "\r\n"
+	writeMu.Lock()
 	_ = conn.WriteMessage(websocket.TextMessage, []byte(exitMsg))
+	writeMu.Unlock()
 	time.Sleep(300 * time.Millisecond)
 
-	// Signal WS reader to stop and wait for all goroutines
-	select {
-	case <-done:
-	default:
-	}
+	// Close the WS connection to unblock the WS-reader goroutine (which is
+	// blocked in conn.ReadMessage). Without this, wg.Wait() would deadlock when
+	// cmd.exe exits naturally (e.g. user types "exit").
+	_ = conn.Close()
 	wg.Wait()
 
 	h.log.Info("[CONSOLE] Session closed", map[string]any{"paw": consolePaw})
 }
 
-// pipe reads from r and forwards every chunk as a WebSocket text message.
-func pipe(conn *websocket.Conn, r io.Reader) {
+// pipeToWS reads from r and forwards every chunk as a WebSocket text message.
+// writeMu must be held for every WriteMessage call to avoid concurrent-writer
+// corruption (gorilla/websocket requires single-writer access).
+func pipeToWS(conn *websocket.Conn, r io.Reader, label string, writeMu *sync.Mutex, h *Handler) {
 	buf := make([]byte, 4096)
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
-			_ = conn.WriteMessage(websocket.TextMessage, buf[:n])
+			h.log.Info("[CONSOLE] "+label+"->WS: read %d bytes", map[string]any{"n": n})
+			writeMu.Lock()
+			writeErr := conn.WriteMessage(websocket.TextMessage, buf[:n])
+			writeMu.Unlock()
+			if writeErr != nil {
+				h.log.Warn("[CONSOLE] "+label+"->WS: WriteMessage failed", map[string]any{"error": writeErr.Error()})
+				return
+			}
 		}
 		if err != nil {
+			h.log.Debug("[CONSOLE] "+label+"->WS: pipe EOF/error", map[string]any{"error": err.Error()})
 			break
 		}
 	}
@@ -200,8 +219,11 @@ func shellConfig() (shell string, args []string, workDir string) {
 	switch runtime.GOOS {
 	case "windows":
 		workDir = `C:\merlino`
-		// No extra flags: /Q causes cmd.exe to exit immediately with piped stdin.
-		// Echo suppression is done by writing "@echo off\r\n" to stdin after start.
+		// No flags.  With piped stdin, cmd.exe automatically enters batch
+		// mode: no prompt shown, no command echo.  /Q and /K "@echo off"
+		// were both tried before and caused problems (immediate exit or
+		// visible "@echo off" line).  The PS1 terminal handles prompt
+		// rendering and local keyboard echo on its own.
 		return "cmd.exe", []string{}, workDir
 	case "darwin":
 		workDir = "/merlino"
