@@ -238,6 +238,23 @@ func (b *Beacon) executeJob(job *Job) {
 		stderr = result.Stderr
 	}
 
+	// Execute cleanup command if provided (always runs, regardless of main exit code)
+	if job.CleanupCommand != "" {
+		cleanupCmd := b.exec.ResolveInputArgs(job.CleanupCommand, job.InputArgs)
+		b.log.Info("[JOB] Running cleanup command", map[string]any{"job_id": job.ID})
+		cleanupResult, cleanupErr := b.exec.Execute(job.Executor, cleanupCmd, timeout)
+		if cleanupErr != nil {
+			stderr += "\n--- CLEANUP ERROR ---\n" + cleanupErr.Error()
+		} else if cleanupResult != nil {
+			if cleanupResult.Stdout != "" {
+				stdout += "\n--- CLEANUP ---\n" + cleanupResult.Stdout
+			}
+			if cleanupResult.Stderr != "" {
+				stderr += "\n--- CLEANUP STDERR ---\n" + cleanupResult.Stderr
+			}
+		}
+	}
+
 	// Write immutable execution log
 	logger.ExecutionLog(logger.ExecLogPath(), map[string]any{
 		"job_id":       job.ID,

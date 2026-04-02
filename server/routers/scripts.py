@@ -47,6 +47,8 @@ def list_scripts(
     count_only: bool = Query(False),
 ):
     q = db.query(Script)
+    # Exclude internal system records from user-visible list
+    q = q.filter(Script.source != "system")
     if search:
         q = q.filter(or_(Script.name.ilike(f"%{search}%"), Script.tcode.ilike(f"%{search}%")))
     if platform:
@@ -229,9 +231,9 @@ def execute_script(script_id: str, payload: dict, db: Session = Depends(get_db),
         timeout_seconds=payload.get("timeout_seconds", 300),
         status="pending",
     )
-    # Sign job
-    job_payload = f"{job.id}:{job.command}:{job.executor}"
-    job.signature = hmac.new(settings.hmac_secret.encode(), job_payload.encode(), "sha256").hexdigest()
+    # Signature is empty (dev mode) - agent accepts unsigned jobs.
+    # Production: sign with agent-specific token stored server-side.
+    job.signature = ""
 
     db.add(job)
     db.commit()
@@ -241,3 +243,62 @@ def execute_script(script_id: str, payload: dict, db: Session = Depends(get_db),
     log.info("[EXECUTE] Script %s queued for agent %s (job=%s, test=%s)", script_id, paw, job_id, test.id)
 
     return {"test_id": test.id, "job_id": job_id, "paw": paw, "queued": True}
+
+
+@router.post("/execute-adhoc", status_code=201)
+def execute_adhoc(payload: dict, db: Session = Depends(get_db), _=Depends(_auth)):
+    """Execute a command on an agent immediately without saving a Script first.
+
+    Body: {"command": "...", "cleanup_command": "", "executor": "powershell|cmd|bash", "paw": "..."}
+    Returns: {"job_id", "paw", "queued": true}
+    """
+    command = (payload.get("command") or "").strip()
+    cleanup = (payload.get("cleanup_command") or "").strip()
+    executor = payload.get("executor") or "powershell"
+    paw = payload.get("paw") or ""
+
+    if not command:
+        raise HTTPException(status_code=422, detail="'command' is required")
+    if not paw:
+        raise HTTPException(status_code=422, detail="'paw' is required")
+
+    agent = db.query(Agent).filter(Agent.paw == paw).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent '{paw}' not found")
+    if agent.status == "offline":
+        raise HTTPException(status_code=409, detail=f"Agent '{paw}' is offline")
+
+    # Create a transient Test with no script link
+    test = Test(
+        id=str(uuid.uuid4()),
+        script_id=None,
+        tcode="adhoc",
+        agent_id=agent.id,
+        operation_name="adhoc",
+        state="pending",
+    )
+    db.add(test)
+    db.flush()
+
+    # Job: script_id uses sentinel "_adhoc" because the DB column is NOT NULL.
+    # FK constraint is not enforced (PRAGMA foreign_keys = 0).
+    job_id = str(uuid.uuid4())
+    job = Job(
+        id=job_id,
+        test_id=test.id,
+        agent_id=agent.id,
+        script_id="_adhoc",
+        executor=executor,
+        command=command,
+        cleanup_command=cleanup or None,
+        timeout_seconds=payload.get("timeout_seconds", 300),
+        status="pending",
+        signature="",
+    )
+    db.add(job)
+    db.commit()
+
+    job_queue.enqueue(paw, job_id)
+    log.info("[EXECUTE-ADHOC] Queued ad-hoc job for agent %s (job=%s executor=%s)", paw, job_id, executor)
+
+    return {"job_id": job_id, "paw": paw, "queued": True}

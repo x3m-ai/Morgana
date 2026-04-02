@@ -591,9 +591,11 @@ async function _loadAgentOptions() {
 }
 
 async function executeScriptFromModal() {
-  if (!_currentScriptId) { alert("Save the script before executing."); return; }
   const paw = document.getElementById("sm-agent-select").value;
   if (!paw) { alert("Select an agent first."); return; }
+  const command = (document.getElementById("sm-command").value || "").trim();
+  if (!command) { alert("Enter a command first."); return; }
+
   const resultEl = document.getElementById("sm-execute-result");
   const outputSec = document.getElementById("sm-output-section");
   const outputPre = document.getElementById("sm-output-pre");
@@ -605,16 +607,27 @@ async function executeScriptFromModal() {
   outputPre.textContent = "";
 
   try {
-    const result = await apiFetch(`/api/v2/scripts/${_currentScriptId}/execute`, {
-      method: "POST",
-      body: JSON.stringify({ paw }),
-    });
+    let result;
+    if (_currentScriptId) {
+      // Saved script - use its stored command/cleanup
+      result = await apiFetch(`/api/v2/scripts/${_currentScriptId}/execute`, {
+        method: "POST",
+        body: JSON.stringify({ paw }),
+      });
+    } else {
+      // New Script modal - run ad-hoc without saving
+      const executor = document.getElementById("sm-executor").value || "powershell";
+      const cleanup = (document.getElementById("sm-cleanup").value || "").trim();
+      result = await apiFetch("/api/v2/scripts/execute-adhoc", {
+        method: "POST",
+        body: JSON.stringify({ command, cleanup_command: cleanup, executor, paw }),
+      });
+    }
     if (!result.queued) {
       resultEl.textContent = "[WARN] Unexpected response.";
       return;
     }
     resultEl.textContent = `[OK] Job queued (${result.job_id.slice(0, 8)}...)`;
-    // Show output panel and start polling
     outputSec.style.display = "block";
     outputStatus.textContent = "Running...";
     outputPre.textContent = "";

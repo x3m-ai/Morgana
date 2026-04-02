@@ -35,6 +35,30 @@ def init_db():
     from models import script, chain, agent, test, campaign, job, tag  # noqa: F401 - import to register models
     Base.metadata.create_all(bind=engine)
     _migrate()
+    _seed()
+
+
+def _seed():
+    """Ensure system records exist (idempotent)."""
+    from models.script import Script as ScriptModel
+    db = SessionLocal()
+    try:
+        if not db.query(ScriptModel).filter(ScriptModel.id == "_adhoc").first():
+            db.add(ScriptModel(
+                id="_adhoc",
+                name="_SYSTEM_ADHOC",
+                tcode="_ADHOC",
+                executor="cmd",
+                command="",
+                source="system",
+                platform="all",
+            ))
+            db.commit()
+    except Exception as exc:
+        db.rollback()
+        print(f"[WARN] Seed _adhoc: {exc}")
+    finally:
+        db.close()
 
 
 def _migrate():
