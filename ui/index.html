@@ -375,14 +375,100 @@
 
       </div>
 
-      <!-- Campaigns page placeholder -->
+      <!-- Campaigns page -->
       <div id="page-campaigns" class="page">
-        <div class="page-header"><h1>Campaigns</h1></div>
-        <div class="card">
-          <div class="card-body">
-            <div class="empty-state">Campaign management coming soon. Group related Tests into named exercises.</div>
+
+        <!-- List view -->
+        <div id="campaign-list-view">
+          <div class="page-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <h1 style="flex:1">Campaigns</h1>
+            <button class="btn btn-primary"    onclick="newCampaign()">+ New Campaign</button>
+            <button class="btn btn-secondary"  onclick="importCampaignJSON()">Import JSON</button>
+            <button class="btn btn-secondary"  onclick="loadCampaigns()">Refresh</button>
+          </div>
+
+          <div class="card" style="margin-bottom:16px">
+            <div class="card-body" style="padding:0">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th>Chains</th>
+                    <th>Updated</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="campaignListBody">
+                  <tr><td colspan="5" class="empty-row">Loading campaigns...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="page-header" style="margin-top:24px">
+            <h2 style="font-size:15px;font-weight:600">Recent Executions</h2>
+          </div>
+          <div class="card">
+            <div class="card-body" style="padding:0">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Campaign</th>
+                    <th>Agent</th>
+                    <th>State</th>
+                    <th>Started</th>
+                    <th>Finished</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="campaignExecsBody">
+                  <tr><td colspan="6" class="empty-row">No executions yet</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
+
+        <!-- Editor view (hidden by default) -->
+        <div id="campaign-editor-view" style="display:none">
+          <div class="page-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <button class="btn btn-secondary" onclick="closeCampaignEditor()">&larr; Back</button>
+            <h1 style="flex:1" id="campaign-editor-title">New Campaign</h1>
+            <button class="btn btn-primary"   onclick="saveCampaign()">Save</button>
+            <button class="btn btn-secondary" onclick="executeCampaignFromEditor()" id="camp-exec-btn" disabled>Execute</button>
+            <button class="btn btn-secondary" onclick="exportCampaignJSON()">Export JSON</button>
+          </div>
+
+          <div class="card" style="margin-bottom:16px">
+            <div class="card-body">
+              <div class="form-group">
+                <label>Name *</label>
+                <input type="text" id="camp-name-input" class="search-input" style="width:100%" placeholder="e.g. Operation Shadow" />
+              </div>
+              <div class="form-group" style="margin-top:.8rem">
+                <label>Description</label>
+                <input type="text" id="camp-desc-input" class="search-input" style="width:100%" placeholder="Brief objective of this campaign..." />
+              </div>
+              <div class="form-group" style="margin-top:.8rem">
+                <label>Default Agent</label>
+                <select id="camp-agent-sel" class="select-input" style="width:100%">
+                  <option value="">-- select agent --</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Flow canvas -->
+          <div class="card">
+            <div class="card-body" style="overflow-x:auto;overflow-y:auto;min-height:300px">
+              <div id="campaign-flow" class="chain-flow">
+                <!-- Rendered by renderCampaignFlow() -->
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <!-- Admin page -->
@@ -720,6 +806,49 @@
     <button onclick="chainMenuAddScript()">Script Node</button>
     <button onclick="chainMenuAddIfElse()">If / Then / Else</button>
     <button onclick="closeChainAddMenu()" style="color:var(--text-muted);font-size:11px">Cancel</button>
+  </div>
+
+  <!-- Campaign: Chain Picker Modal -->
+  <div id="campChainPickerModal" class="modal hidden">
+    <div class="modal-content" style="max-width:760px;width:96%;max-height:85vh;overflow:hidden;display:flex;flex-direction:column">
+      <div class="modal-header">
+        <h3>Select Chain</h3>
+        <button class="modal-close" onclick="closeCampChainPicker()">&times;</button>
+      </div>
+      <div class="modal-body" style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:10px">
+        <input type="text" id="ccp-search" class="search-input" placeholder="Chain name..." oninput="filterCcp()">
+        <div style="overflow-y:auto;flex:1">
+          <table class="data-table">
+            <thead>
+              <tr><th>Name</th><th>Description</th><th>Chains</th><th></th></tr>
+            </thead>
+            <tbody id="ccpTableBody">
+              <tr><td colspan="4" class="empty-row">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Campaign: Execution Log Modal -->
+  <div id="campExecLogModal" class="modal hidden">
+    <div class="modal-content" style="max-width:860px;width:96%;max-height:86vh;overflow:hidden;display:flex;flex-direction:column">
+      <div class="modal-header">
+        <h3 id="campExecLogTitle">Campaign Execution Log</h3>
+        <button class="modal-close" onclick="closeCampExecLog()">&times;</button>
+      </div>
+      <div class="modal-body" style="overflow-y:auto;flex:1">
+        <div id="campExecLogBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Campaign: Add-node floating popup -->
+  <div id="campAddMenu" class="chain-add-menu hidden">
+    <button onclick="campMenuAddChain()">Chain Node</button>
+    <button onclick="campMenuAddParallel()">Parallel</button>
+    <button onclick="closeCampAddMenu()" style="color:var(--text-muted);font-size:11px">Cancel</button>
   </div>
 
   <script src="app.js"></script>

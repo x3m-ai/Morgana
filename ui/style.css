@@ -948,6 +948,51 @@ body {
 }
 .exec-step.step-finished { border-color: var(--success); }
 .exec-step.step-failed   { border-color: var(--danger); }
+.exec-step.step-partial  { border-color: var(--warning); }
+
+/* Campaign: Parallel node */
+.camp-parallel-node {
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px 14px 12px;
+  min-width: 480px;
+  max-width: 960px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cpar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+}
+.camp-parallel-branches {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.camp-branch-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 220px;
+  flex: 1;
+  padding: 8px 8px 12px;
+  border-right: 1px solid var(--border);
+}
+.camp-branch-col:last-child { border-right: none; }
+.camp-branch-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
 .exec-step.step-ifelse   { border-color: #f59e0b; }
 .exec-step .step-header {
   display: flex;

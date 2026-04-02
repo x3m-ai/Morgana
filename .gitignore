@@ -81,3 +81,5 @@ release/
 *.spec.bak
 build/
 dist/
+
+morgana.pid

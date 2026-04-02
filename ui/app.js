@@ -18,6 +18,12 @@ let _editingChain = { id: null, name: "", description: "", nodes: [] };
 let _chainAddMenuCtx = null; // { branch, index, ifElseId }
 let _chainPickerCtx  = null; // { type: "insert"|"replace", nodeId, branch, ifElseId, index }
 
+// Campaign builder state
+let _editingCampaign = { id: null, name: "New Campaign", description: "", agent_paw: "", nodes: [] };
+let _campAddMenuCtx  = null;
+let _campPickerCtx   = null;
+let _campAllChains   = [];
+
 // ─── Navigation ──────────────────────────────────────────────────────────────
 
 document.querySelectorAll(".nav-item").forEach((item) => {
@@ -38,13 +44,14 @@ function navigateTo(page) {
 
   // Load page data
   switch (page) {
-    case "dashboard": refreshDashboard(); break;
-    case "agents":    loadAgents(); break;
-    case "scripts":   loadScripts(); break;
-    case "tests":     loadTests(); break;
-    case "chains":    loadChains(); break;
-    case "tags":      loadTags(); break;
-    case "admin":     loadAdminStatus(); break;
+    case "dashboard": refreshDashboard();   break;
+    case "agents":    loadAgents();          break;
+    case "scripts":   loadScripts();         break;
+    case "tests":     loadTests();           break;
+    case "chains":    loadChains();          break;
+    case "campaigns": loadCampaigns();       break;
+    case "tags":      loadTags();            break;
+    case "admin":     loadAdminStatus();     break;
   }
 }
 
@@ -1770,6 +1777,560 @@ function _walkAndUpdateContains(nodes, nodeId, value) {
     if (n.type === "if_else") {
       if (_walkAndUpdateContains(n.if_nodes   || [], nodeId, value)) return true;
       if (_walkAndUpdateContains(n.else_nodes || [], nodeId, value)) return true;
+    }
+  }
+  return false;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CAMPAIGNS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── List & CRUD ───────────────────────────────────────────────────────────────
+
+async function loadCampaigns() {
+  document.getElementById("campaign-list-view").style.display  = "";
+  document.getElementById("campaign-editor-view").style.display = "none";
+
+  const tbody = document.getElementById("campaignListBody");
+  tbody.innerHTML = `<tr><td colspan="5" class="empty-row">Loading...</td></tr>`;
+  try {
+    const campaigns = await apiFetch("/api/v2/campaigns");
+    _renderCampaignList(campaigns);
+    loadCampaignExecutionsList();
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-row">Error: ${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+function _renderCampaignList(campaigns) {
+  const tbody = document.getElementById("campaignListBody");
+  if (!campaigns.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-row">No campaigns yet. Click "+ New Campaign" to build one.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = campaigns.map((c) => {
+    const updated = c.updated_at ? c.updated_at.slice(0, 16).replace("T", " ") : "-";
+    return `<tr>
+      <td><strong>${escHtml(c.name)}</strong></td>
+      <td style="color:var(--text-secondary)">${escHtml(c.description || "-")}</td>
+      <td>${c.node_count || 0}</td>
+      <td style="font-size:12px;color:var(--text-muted)">${escHtml(updated)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-open" onclick="editCampaign('${escHtml(c.id)}')">Open</button>
+        <button class="btn btn-danger btn-sm" style="margin-left:4px" onclick="deleteCampaign('${escHtml(c.id)}')">Delete</button>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+async function loadCampaignExecutionsList() {
+  const tbody = document.getElementById("campaignExecsBody");
+  try {
+    const execs = await apiFetch("/api/v2/campaigns/executions");
+    if (!execs.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No executions yet</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = execs.slice(0, 50).map((e) => {
+      const started  = e.started_at  ? e.started_at.slice(0, 16).replace("T", " ")  : "-";
+      const finished = e.finished_at ? e.finished_at.slice(0, 16).replace("T", " ") : "-";
+      const stateCls = e.state === "completed" ? "var(--success)" : e.state === "failed" ? "var(--danger)" : "var(--warning)";
+      return `<tr>
+        <td>${escHtml(e.campaign_name || "-")}</td>
+        <td style="font-size:12px">${escHtml(e.agent_paw || "-")} ${e.agent_hostname ? "(" + escHtml(e.agent_hostname) + ")" : ""}</td>
+        <td><span style="color:${stateCls};font-weight:600">${escHtml(e.state)}</span></td>
+        <td style="font-size:12px">${escHtml(started)}</td>
+        <td style="font-size:12px">${escHtml(finished)}</td>
+        <td><button class="btn-open" onclick="openCampExecLog('${escHtml(e.id)}')">Log</button></td>
+      </tr>`;
+    }).join("");
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">Error: ${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function openCampExecLog(execId) {
+  try {
+    const e = await apiFetch(`/api/v2/campaigns/executions/${execId}/log`);
+    document.getElementById("campExecLogTitle").textContent = `Log: ${e.campaign_name || execId.slice(0, 8)}`;
+    document.getElementById("campExecLogBody").innerHTML = _buildCampExecLogHTML(e.step_logs || []);
+    document.getElementById("campExecLogModal").classList.remove("hidden");
+  } catch (err) {
+    alert("Could not load log: " + err.message);
+  }
+}
+
+function closeCampExecLog() {
+  document.getElementById("campExecLogModal").classList.add("hidden");
+}
+
+function _buildCampExecLogHTML(steps) {
+  if (!steps.length) return `<div style="color:var(--text-muted)">No steps recorded.</div>`;
+  let html = "";
+  steps.forEach((s) => {
+    if (s.type === "chain") {
+      const cls = s.state === "completed" ? "step-finished" : "step-failed";
+      html += `<div class="exec-step ${cls}">
+        <div style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600">
+          <span class="tcode">CHAIN</span>
+          <span>${escHtml(s.chain_name || s.chain_id || "?")}</span>
+          <span style="color:${s.state === "completed" ? "var(--success)" : "var(--danger)"}">${escHtml(s.state)}</span>
+        </div>
+        ${s.error ? `<div style="color:var(--danger);font-size:11px;margin-top:4px">${escHtml(s.error)}</div>` : ""}
+        ${(s.steps || []).map((st) => `
+          <div style="margin-top:6px;padding-left:12px;border-left:2px solid var(--border)">
+            <div style="font-size:11px;color:var(--text-muted)">${escHtml(st.name || st.tcode || "step")}</div>
+            <div style="font-size:11px">${escHtml(st.state || "")} ${st.exit_code != null ? "(exit " + st.exit_code + ")" : ""}</div>
+          </div>`).join("")}
+      </div>`;
+    } else if (s.type === "parallel") {
+      const cls = s.state === "completed" ? "step-finished" : s.state === "partial" ? "step-partial" : "step-failed";
+      html += `<div class="exec-step ${cls}">
+        <div style="font-size:12px;font-weight:600;color:var(--accent)">[PARALLEL] ${escHtml(s.state)}</div>
+        ${(s.branches || []).map((b, i) => `
+          <div style="margin-top:8px;padding-left:12px;border-left:2px solid var(--border)">
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted)">Branch ${i + 1}: ${escHtml(b.state || "")}</div>
+            ${(b.steps || []).map((st) => `<div style="font-size:11px;padding-left:8px">${escHtml(st.chain_name || "chain")} &mdash; ${escHtml(st.state || "")}</div>`).join("")}
+          </div>`).join("")}
+      </div>`;
+    }
+  });
+  return html;
+}
+
+function newCampaign() {
+  _editingCampaign = { id: null, name: "New Campaign", description: "", agent_paw: "", nodes: [] };
+  _openCampaignEditor();
+}
+
+async function editCampaign(id) {
+  try {
+    const c = await apiFetch(`/api/v2/campaigns/${id}`);
+    _editingCampaign = {
+      id:          c.id,
+      name:        c.name,
+      description: c.description || "",
+      agent_paw:   c.agent_paw || "",
+      nodes:       (c.flow && c.flow.nodes) ? c.flow.nodes : [],
+    };
+    _openCampaignEditor();
+  } catch (err) {
+    alert("Could not load campaign: " + err.message);
+  }
+}
+
+async function _openCampaignEditor() {
+  document.getElementById("campaign-list-view").style.display   = "none";
+  document.getElementById("campaign-editor-view").style.display = "";
+  document.getElementById("campaign-editor-title").textContent  = _editingCampaign.id ? _editingCampaign.name : "New Campaign";
+  document.getElementById("camp-name-input").value  = _editingCampaign.name;
+  document.getElementById("camp-desc-input").value  = _editingCampaign.description;
+  const execBtn = document.getElementById("camp-exec-btn");
+  if (execBtn) execBtn.disabled = !_editingCampaign.id;
+
+  // Load agents for selector
+  try {
+    const agents = await apiFetch("/api/v2/agents");
+    const sel = document.getElementById("camp-agent-sel");
+    sel.innerHTML = `<option value="">-- select agent --</option>` +
+      agents.map((a) => {
+        const label = a.alias || a.host || a.hostname || a.paw;
+        return `<option value="${escHtml(a.paw)}" ${a.paw === _editingCampaign.agent_paw ? "selected" : ""}>${escHtml(label)} [${escHtml(a.paw)}]</option>`;
+      }).join("");
+  } catch (e) { /* ignore */ }
+
+  // Load chains for picker cache
+  try {
+    _campAllChains = await apiFetch("/api/v2/chains");
+  } catch (e) { _campAllChains = []; }
+
+  renderCampaignFlow();
+}
+
+async function saveCampaign() {
+  const name    = document.getElementById("camp-name-input").value.trim();
+  const desc    = document.getElementById("camp-desc-input").value.trim();
+  const agePaw  = document.getElementById("camp-agent-sel").value;
+  if (!name) { alert("Campaign name is required."); return; }
+
+  _editingCampaign.name        = name;
+  _editingCampaign.description = desc;
+  _editingCampaign.agent_paw   = agePaw;
+
+  const body = { name, description: desc, agent_paw: agePaw || null, flow_json: JSON.stringify({ nodes: _editingCampaign.nodes }) };
+  try {
+    let saved;
+    if (_editingCampaign.id) {
+      saved = await apiFetch(`/api/v2/campaigns/${_editingCampaign.id}`, { method: "PUT", body: JSON.stringify(body) });
+    } else {
+      saved = await apiFetch("/api/v2/campaigns", { method: "POST", body: JSON.stringify(body) });
+    }
+    _editingCampaign.id = saved.id;
+    document.getElementById("campaign-editor-title").textContent = saved.name;
+    document.getElementById("camp-exec-btn").disabled = false;
+  } catch (err) {
+    alert("Save failed: " + err.message);
+  }
+}
+
+async function deleteCampaign(id) {
+  if (!confirm("Delete this campaign? This cannot be undone.")) return;
+  try {
+    await apiFetch(`/api/v2/campaigns/${id}`, { method: "DELETE" });
+    loadCampaigns();
+  } catch (err) {
+    alert("Delete failed: " + err.message);
+  }
+}
+
+function closeCampaignEditor() {
+  loadCampaigns();
+}
+
+async function executeCampaignFromEditor() {
+  if (!_editingCampaign.id) { alert("Save the campaign first."); return; }
+  const agentPaw = document.getElementById("camp-agent-sel").value;
+  if (!agentPaw) { alert("Select an agent before executing."); return; }
+  const c = _editingCampaign;
+  if (!confirm(`Execute campaign "${escHtml(c.name)}" on agent ${escHtml(agentPaw)}?`)) return;
+  try {
+    const r = await apiFetch(`/api/v2/campaigns/${c.id}/execute`, {
+      method: "POST",
+      body: JSON.stringify({ agent_paw: agentPaw }),
+    });
+    alert(`Campaign execution started.\nExecution ID: ${r.execution_id}`);
+  } catch (err) {
+    alert("Execute failed: " + err.message);
+  }
+}
+
+function exportCampaignJSON() {
+  const data = {
+    name:        _editingCampaign.name,
+    description: _editingCampaign.description,
+    flow_json:   JSON.stringify({ nodes: _editingCampaign.nodes }),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${_editingCampaign.name.replace(/\s+/g, "_")}.campaign.json`;
+  a.click();
+}
+
+async function importCampaignJSON() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".json";
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const flow = typeof data.flow_json === "string" ? JSON.parse(data.flow_json) : (data.flow || { nodes: [] });
+      const body = {
+        name:        data.name || "Imported Campaign",
+        description: data.description || "",
+        flow_json:   JSON.stringify(flow),
+      };
+      const saved = await apiFetch("/api/v2/campaigns", { method: "POST", body: JSON.stringify(body) });
+      alert(`Imported: ${saved.name}`);
+      loadCampaigns();
+    } catch (err) {
+      alert("Import failed: " + err.message);
+    }
+  };
+  input.click();
+}
+
+// ── Campaign flow renderer ────────────────────────────────────────────────────
+
+function renderCampaignFlow() {
+  const container = document.getElementById("campaign-flow");
+  if (!container) return;
+  container.innerHTML = _buildCampFlowHTML(_editingCampaign.nodes, "root", null);
+}
+
+function _buildCampFlowHTML(nodes, branch, parallelId) {
+  let html = "";
+  if (branch === "root") {
+    html += `<div class="chain-start-dot" title="Start"></div>`;
+  }
+  html += _campAddBtnHTML(branch, 0, parallelId);
+
+  nodes.forEach((node, idx) => {
+    html += `<div class="chain-vline"></div>`;
+    if (node.type === "parallel") {
+      html += _renderParallelNodeHTML(node);
+    } else {
+      html += _renderCampChainNodeHTML(node, branch, parallelId);
+    }
+    html += _campAddBtnHTML(branch, idx + 1, parallelId);
+  });
+  return html;
+}
+
+function _renderCampChainNodeHTML(node, branch, parallelId) {
+  const nid = escHtml(node.id);
+  const br  = escHtml(branch);
+  const pid = parallelId ? escHtml(parallelId) : "null";
+  return `
+    <div class="chain-script-node" id="cpnode-${nid}">
+      <div class="csn-tactic" style="color:var(--accent)">CHAIN</div>
+      <div class="csn-name">${escHtml(node.chain_name || "Unknown Chain")}</div>
+      <div class="csn-actions">
+        <button class="btn btn-secondary btn-sm" onclick="replaceCampChain('${nid}','${br}','${pid}')">Open</button>
+        <button class="btn btn-danger btn-sm"    onclick="removeCampNode('${nid}','${br}','${pid}')">Remove</button>
+      </div>
+    </div>`;
+}
+
+function _renderParallelNodeHTML(node) {
+  const nid = escHtml(node.id);
+  let branchesHTML = "";
+  (node.branches || []).forEach((bNodes, i) => {
+    branchesHTML += `
+      <div class="camp-branch-col">
+        <div class="camp-branch-header">
+          <span style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Branch ${i + 1}</span>
+          <button class="btn btn-danger btn-sm" style="margin-left:auto;font-size:10px" onclick="removeCampParallelBranch('${nid}',${i})">Remove branch</button>
+        </div>
+        ${_buildCampFlowHTML(bNodes, "branch", nid + "_" + i)}
+        <button class="btn btn-secondary btn-sm" style="margin-top:6px;font-size:11px" onclick="campParallelAddChain('${nid}',${i})">+ chain</button>
+      </div>`;
+  });
+  return `
+    <div class="camp-parallel-node" id="cpnode-${nid}">
+      <div class="cpar-header">
+        [PARALLEL]
+        <button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="addCampParallelBranch('${nid}')">+ Branch</button>
+        <button class="btn btn-danger btn-sm" onclick="removeCampNode('${nid}','root','null')">Remove</button>
+      </div>
+      <div class="camp-parallel-branches">${branchesHTML || '<div style="color:var(--text-muted);padding:12px;font-size:12px">No branches yet. Click "+ Branch".</div>'}</div>
+    </div>`;
+}
+
+function _campAddBtnHTML(branch, index, parallelId) {
+  const br  = escHtml(branch);
+  const pid = parallelId ? escHtml(parallelId) : "null";
+  return `<div class="chain-add-btn"
+    onclick="openCampAddMenu(event,'${br}',${index},'${pid}')"
+    title="Add node">+</div>`;
+}
+
+// ── Add-node popup ────────────────────────────────────────────────────────────
+
+function openCampAddMenu(event, branch, index, parallelIdStr) {
+  const parallelId = (parallelIdStr === "null") ? null : parallelIdStr;
+  _campAddMenuCtx = { branch, index, parallelId };
+
+  const menu = document.getElementById("campAddMenu");
+  menu.classList.remove("hidden");
+  menu.style.left = (event.clientX + 8) + "px";
+  menu.style.top  = (event.clientY + 8) + "px";
+
+  setTimeout(() => {
+    document.addEventListener("click", _closeCampAddMenuIfOutside, { once: true });
+  }, 50);
+}
+
+function _closeCampAddMenuIfOutside(ev) {
+  const menu = document.getElementById("campAddMenu");
+  if (!menu.contains(ev.target)) closeCampAddMenu();
+}
+
+function closeCampAddMenu() {
+  document.getElementById("campAddMenu").classList.add("hidden");
+  _campAddMenuCtx = null;
+}
+
+function campMenuAddChain() {
+  const ctx = _campAddMenuCtx;
+  closeCampAddMenu();
+  if (!ctx) return;
+  _campPickerCtx = { type: "insert", ...ctx };
+  _openCampChainPicker();
+}
+
+function campMenuAddParallel() {
+  const ctx = _campAddMenuCtx;
+  closeCampAddMenu();
+  if (!ctx) return;
+  const node = {
+    id:       _genNodeId(),
+    type:     "parallel",
+    branches: [[], []],
+  };
+  _campInsertNodeAt(_editingCampaign.nodes, node, ctx.branch, ctx.index, ctx.parallelId);
+  renderCampaignFlow();
+}
+
+function addCampParallelBranch(parallelNodeId) {
+  _campWalkAndModifyParallel(_editingCampaign.nodes, parallelNodeId, (node) => {
+    node.branches.push([]);
+  });
+  renderCampaignFlow();
+}
+
+function removeCampParallelBranch(parallelNodeId, branchIdx) {
+  if (!confirm("Remove this branch and all its chains?")) return;
+  _campWalkAndModifyParallel(_editingCampaign.nodes, parallelNodeId, (node) => {
+    node.branches.splice(branchIdx, 1);
+  });
+  renderCampaignFlow();
+}
+
+function campParallelAddChain(parallelNodeId, branchIdx) {
+  _campPickerCtx = { type: "parallel_branch", parallelNodeId, branchIdx };
+  _openCampChainPicker();
+}
+
+// ── Chain picker ──────────────────────────────────────────────────────────────
+
+function _openCampChainPicker() {
+  if (!_campAllChains.length) {
+    apiFetch("/api/v2/chains").then((chains) => {
+      _campAllChains = chains;
+      _renderCcpTable(_campAllChains);
+    }).catch(() => _renderCcpTable([]));
+  } else {
+    _renderCcpTable(_campAllChains);
+  }
+  document.getElementById("ccp-search").value = "";
+  document.getElementById("campChainPickerModal").classList.remove("hidden");
+}
+
+function closeCampChainPicker() {
+  document.getElementById("campChainPickerModal").classList.add("hidden");
+  _campPickerCtx = null;
+}
+
+function filterCcp() {
+  const q = (document.getElementById("ccp-search").value || "").toLowerCase();
+  const filtered = _campAllChains.filter((c) => !q || (c.name || "").toLowerCase().includes(q) || (c.description || "").toLowerCase().includes(q));
+  _renderCcpTable(filtered);
+}
+
+function _renderCcpTable(chains) {
+  const tbody = document.getElementById("ccpTableBody");
+  if (!tbody) return;
+  if (!chains.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="empty-row">No chains match.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = chains.map((c) => `
+    <tr>
+      <td><strong>${escHtml(c.name || "?")}</strong></td>
+      <td style="color:var(--text-secondary)">${escHtml(c.description || "-")}</td>
+      <td>${c.node_count || 0}</td>
+      <td><button class="btn btn-primary btn-sm" onclick="campPickChain('${escHtml(c.id)}')">Insert</button></td>
+    </tr>`).join("");
+}
+
+function campPickChain(chainId) {
+  const c = _campAllChains.find((x) => x.id === chainId);
+  if (!c || !_campPickerCtx) return;
+  const ctx = _campPickerCtx;
+  closeCampChainPicker();
+
+  const node = {
+    id:         _genNodeId(),
+    type:       "chain",
+    chain_id:   c.id,
+    chain_name: c.name,
+  };
+
+  if (ctx.type === "replace") {
+    _campWalkAndReplace(_editingCampaign.nodes, ctx.nodeId, c);
+  } else if (ctx.type === "parallel_branch") {
+    _campWalkAndModifyParallel(_editingCampaign.nodes, ctx.parallelNodeId, (pNode) => {
+      if (pNode.branches[ctx.branchIdx]) {
+        pNode.branches[ctx.branchIdx].push(node);
+      }
+    });
+  } else {
+    _campInsertNodeAt(_editingCampaign.nodes, node, ctx.branch, ctx.index, ctx.parallelId);
+  }
+  renderCampaignFlow();
+}
+
+function replaceCampChain(nodeId, branch, parallelIdStr) {
+  const parallelId = (parallelIdStr === "null") ? null : parallelIdStr;
+  _campPickerCtx = { type: "replace", nodeId, branch, parallelId };
+  _openCampChainPicker();
+}
+
+// ── Remove node ───────────────────────────────────────────────────────────────
+
+function removeCampNode(nodeId, branch, parallelIdStr) {
+  if (!confirm("Remove this node and all nodes that follow it in this branch?")) return;
+  const parallelId = (parallelIdStr === "null") ? null : parallelIdStr;
+  _campWalkAndRemove(_editingCampaign.nodes, nodeId, branch, parallelId);
+  renderCampaignFlow();
+}
+
+// ── Tree helpers ──────────────────────────────────────────────────────────────
+
+function _campInsertNodeAt(nodes, newNode, branch, index, parallelId) {
+  // If no parallelId context, insert into the root nodes array at index
+  if (!parallelId || parallelId === "null") {
+    _editingCampaign.nodes.splice(index, 0, newNode);
+    return true;
+  }
+  // parallelId format: "parallelNodeId_branchIdx"
+  const lastUs = parallelId.lastIndexOf("_");
+  const pNodeId  = parallelId.slice(0, lastUs);
+  const branchIdx = parseInt(parallelId.slice(lastUs + 1), 10);
+  return _campWalkAndModifyParallel(_editingCampaign.nodes, pNodeId, (pNode) => {
+    if (pNode.branches[branchIdx]) {
+      pNode.branches[branchIdx].splice(index, 0, newNode);
+    }
+  });
+}
+
+function _campWalkAndRemove(nodes, nodeId) {
+  const idx = nodes.findIndex((n) => n.id === nodeId);
+  if (idx !== -1) {
+    nodes.splice(idx);
+    return true;
+  }
+  for (const n of nodes) {
+    if (n.type === "parallel") {
+      for (const branchNodes of (n.branches || [])) {
+        if (_campWalkAndRemove(branchNodes, nodeId)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function _campWalkAndReplace(nodes, nodeId, chainObj) {
+  for (const n of nodes) {
+    if (n.id === nodeId && n.type === "chain") {
+      n.chain_id   = chainObj.id;
+      n.chain_name = chainObj.name;
+      return true;
+    }
+    if (n.type === "parallel") {
+      for (const branchNodes of (n.branches || [])) {
+        if (_campWalkAndReplace(branchNodes, nodeId, chainObj)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function _campWalkAndModifyParallel(nodes, parallelNodeId, fn) {
+  for (const n of nodes) {
+    if (n.type === "parallel" && n.id === parallelNodeId) {
+      fn(n);
+      return true;
+    }
+    if (n.type === "parallel") {
+      for (const branchNodes of (n.branches || [])) {
+        if (_campWalkAndModifyParallel(branchNodes, parallelNodeId, fn)) return true;
+      }
     }
   }
   return false;

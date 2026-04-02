@@ -160,6 +160,10 @@ app.include_router(console_router, prefix="/api/v2/console", tags=["console"])
 from routers.chains import router as chains_router
 app.include_router(chains_router, prefix="/api/v2/chains", tags=["chains"])
 
+# Campaigns (sequence of Chains with parallel support)
+from routers.campaigns import router as campaigns_router
+app.include_router(campaigns_router, prefix="/api/v2/campaigns", tags=["campaigns"])
+
 # Serve web UI
 ui_path = Path(__file__).parent.parent / "ui"
 if ui_path.exists():

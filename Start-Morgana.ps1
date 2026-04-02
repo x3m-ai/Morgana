@@ -166,9 +166,12 @@ if ($NoWindow) {
         }
     }
 
+    $sslEnabled = ($env:MORGANA_SSL -eq "true") -or (Test-Path (Join-Path $ServerDir "certs\server.crt"))
+    $scheme = if ($sslEnabled) { "https" } else { "http" }
+
     if ($ready) {
         Write-Ok "Morgana started in background (PID $($proc.Id)) after ${elapsed}s"
-        Write-Ok "URL:  https://localhost:$Port/ui/"
+        Write-Ok "URL:  ${scheme}://localhost:$Port/ui/"
         Write-Ok "PID file: $PidFile"
         Write-Ok "Log:  $LogFile"
     } else {
@@ -177,8 +180,10 @@ if ($NoWindow) {
     }
 } else {
     # Foreground (Ctrl+C to stop)
+    $sslEnabled = ($env:MORGANA_SSL -eq "true") -or (Test-Path (Join-Path $ServerDir "certs\server.crt"))
+    $scheme = if ($sslEnabled) { "https" } else { "http" }
     Write-Ok "Morgana running in foreground. Press Ctrl+C to stop."
-    Write-Ok "URL: https://localhost:$Port/ui/"
+    Write-Ok "URL: ${scheme}://localhost:$Port/ui/"
     Write-Host ""
     & $pythonExe $MainScript
 }
