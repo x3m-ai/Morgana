@@ -166,13 +166,25 @@
         <div class="page-header">
           <h1>Scripts</h1>
           <div class="header-actions">
-            <input type="text" id="scriptSearch" class="search-input" placeholder="Search by TCode, name..." oninput="filterScripts()">
+            <input type="text" id="scriptSearch" class="search-input" style="width:180px" placeholder="TCode or name..." oninput="filterScripts()">
+            <select id="scriptTactic" class="select-input" onchange="filterScripts()">
+              <option value="">All tactics</option>
+            </select>
+            <select id="scriptExecutor" class="select-input" onchange="filterScripts()">
+              <option value="">All executors</option>
+              <option value="powershell">PowerShell</option>
+              <option value="cmd">CMD</option>
+              <option value="bash">Bash</option>
+              <option value="python">Python</option>
+              <option value="manual">Manual</option>
+            </select>
             <select id="scriptPlatform" class="select-input" onchange="filterScripts()">
               <option value="">All platforms</option>
               <option value="windows">Windows</option>
               <option value="linux">Linux</option>
               <option value="macos">macOS</option>
             </select>
+            <button class="btn btn-secondary btn-sm" onclick="clearScriptFilters()">Clear</button>
             <button class="btn btn-primary" onclick="openNewScriptModal()">+ New Script</button>
           </div>
         </div>
@@ -188,7 +200,7 @@
                   <th>Platform</th>
                   <th>Source</th>
                   <th>Tags</th>
-                  <th></th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="scriptsTableBody">

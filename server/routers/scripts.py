@@ -146,11 +146,16 @@ def create_script(payload: dict, db: Session = Depends(get_db)):
 
 @router.delete("/{script_id}", status_code=204)
 def delete_script(script_id: str, db: Session = Depends(get_db), _=Depends(_auth)):
+    from models.job import Job
+    from models.test import Test
+    from models.chain import ChainStep
     s = db.query(Script).filter(Script.id == script_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Script not found")
-    if s.source not in ("custom", "merlino"):
-        raise HTTPException(status_code=409, detail="Atomic Red Team scripts are managed via the submodule.")
+    # Remove FK dependents first
+    db.query(Job).filter(Job.script_id == script_id).delete(synchronize_session=False)
+    db.query(Test).filter(Test.script_id == script_id).delete(synchronize_session=False)
+    db.query(ChainStep).filter(ChainStep.script_id == script_id).delete(synchronize_session=False)
     db.delete(s)
     db.commit()
     log.info("[SCRIPT] Deleted: %s (%s)", s.name, script_id)

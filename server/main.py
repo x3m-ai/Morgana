@@ -93,6 +93,9 @@ async def lifespan(app: FastAPI):
             "[START] Atomic Red Team — loaded=%d updated=%d skipped=%d errors=%d",
             stats["loaded"], stats["updated"], stats["skipped"], stats["errors"],
         )
+        fixed = loader.fix_tactics()
+        if fixed:
+            log.info("[START] Tactic backfill: updated %d scripts", fixed)
         # Share boot stats with admin router
         import routers.admin as _admin_router
         _admin_router._last_stats = stats

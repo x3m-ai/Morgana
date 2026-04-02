@@ -246,6 +246,7 @@ async function loadScripts() {
     } else {
       allScripts = [];
     }
+    populateTacticDropdown();
     renderScripts(allScripts);
   } catch {
     renderScripts([]);
@@ -267,7 +268,10 @@ function renderScripts(scripts) {
       <td>${escHtml(s.platform || "all")}</td>
       <td><span style="font-size:11px;color:var(--text-muted)">${escHtml(s.source || "custom")}</span></td>
       <td id="tags-script-${escHtml(s.id)}" class="tags-container" style="min-width:80px"></td>
-      <td><button class="btn-open" onclick="openScriptModal('${escHtml(s.id)}')">Open</button></td>
+      <td style="white-space:nowrap">
+        <button class="btn-open" onclick="openScriptModal('${escHtml(s.id)}')">Open</button>
+        <button class="btn btn-danger btn-sm" style="margin-left:4px" onclick="deleteScript('${escHtml(s.id)}')">Delete</button>
+      </td>
     </tr>
   `).join("");
   // Load tags asynchronously for each row (batch, non-blocking)
@@ -276,13 +280,44 @@ function renderScripts(scripts) {
 
 function filterScripts() {
   const query = (document.getElementById("scriptSearch").value || "").toLowerCase();
+  const tactic = document.getElementById("scriptTactic")?.value || "";
+  const executor = document.getElementById("scriptExecutor")?.value || "";
   const platform = document.getElementById("scriptPlatform").value;
   const filtered = allScripts.filter((s) => {
     const matchQuery = !query || (s.tcode || "").toLowerCase().includes(query) || (s.name || "").toLowerCase().includes(query);
+    const matchTactic = !tactic || (s.tactic || "") === tactic;
+    const matchExecutor = !executor || (s.executor || "") === executor;
     const matchPlatform = !platform || (s.platform || "all").includes(platform) || s.platform === "all";
-    return matchQuery && matchPlatform;
+    return matchQuery && matchTactic && matchExecutor && matchPlatform;
   });
   renderScripts(filtered);
+}
+
+function clearScriptFilters() {
+  document.getElementById("scriptSearch").value = "";
+  const t = document.getElementById("scriptTactic"); if (t) t.value = "";
+  const e = document.getElementById("scriptExecutor"); if (e) e.value = "";
+  document.getElementById("scriptPlatform").value = "";
+  renderScripts(allScripts);
+}
+
+function populateTacticDropdown() {
+  const sel = document.getElementById("scriptTactic");
+  if (!sel) return;
+  const tactics = [...new Set(allScripts.map((s) => s.tactic).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">All tactics</option>' +
+    tactics.map((t) => `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join("");
+}
+
+async function deleteScript(scriptId) {
+  if (!confirm("Delete this script? This cannot be undone.")) return;
+  try {
+    await apiFetch(`/api/v2/scripts/${scriptId}`, { method: "DELETE" });
+    allScripts = allScripts.filter((s) => s.id !== scriptId);
+    filterScripts();
+  } catch (err) {
+    alert("Delete failed: " + err.message);
+  }
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -587,7 +622,7 @@ function openScriptModal(scriptId) {
     const el = document.getElementById(id);
     if (el) el.readOnly = readOnly;
   });
-  document.getElementById("sm-delete-btn").style.display = readOnly ? "none" : "inline-flex";
+  document.getElementById("sm-delete-btn").style.display = "inline-flex";
 
   document.getElementById("sm-execute-result").style.display = "none";
   _loadAgentOptions();
@@ -622,9 +657,11 @@ async function saveScriptFromModal() {
       const created = await apiFetch("/api/v2/scripts", { method: "POST", body: JSON.stringify(payload) });
       _currentScriptId = created.id;
     }
-    // Refresh local cache
+    // Refresh local cache and re-render list
     const updated = await apiFetch("/api/v2/scripts?limit=5000");
     allScripts = updated.scripts || updated || [];
+    populateTacticDropdown();
+    filterScripts();
     document.getElementById("scriptModalTitle").textContent = escHtml(payload.name);
     document.getElementById("sm-delete-btn").style.display = "inline-flex";
     alert("Script saved.");

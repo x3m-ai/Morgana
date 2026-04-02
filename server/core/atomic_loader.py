@@ -64,12 +64,66 @@ class AtomicLoader:
     # Internal implementation
     # ------------------------------------------------------------------
 
+    def _build_tactic_map(self) -> dict:
+        """Parses Indexes/*.yaml to build {TCODE: tactic_name} mapping."""
+        tactic_map = {}
+        index_dir = self.atomics_path / "Indexes"
+        if not index_dir.exists():
+            log.warning("[ATOMIC] Indexes dir not found at %s", index_dir)
+            return tactic_map
+        for idx_file in index_dir.glob("*.yaml"):
+            try:
+                with open(idx_file, "r", encoding="utf-8", errors="replace") as f:
+                    data = yaml.safe_load(f)
+                if not data or not isinstance(data, dict):
+                    continue
+                for tactic_name, techniques in data.items():
+                    if not isinstance(techniques, dict):
+                        continue
+                    for tcode in techniques.keys():
+                        tactic_map[tcode.upper()] = tactic_name
+            except Exception as e:
+                log.warning("[ATOMIC] Failed to parse index %s: %s", idx_file.name, str(e))
+        log.info("[ATOMIC] Tactic map built: %d entries", len(tactic_map))
+        return tactic_map
+
+    def fix_tactics(self) -> int:
+        """One-time update: populate tactic field for all scripts with empty tactic."""
+        tactic_map = self._build_tactic_map()
+        if not tactic_map:
+            return 0
+        from database import SessionLocal
+        from models.script import Script
+        db = SessionLocal()
+        try:
+            scripts = db.query(Script).filter(Script.tactic == "").all()
+            updated = 0
+            for s in scripts:
+                tcode = (s.tcode or "").upper()
+                tactic = tactic_map.get(tcode, "")
+                if not tactic and "." in tcode:
+                    tactic = tactic_map.get(tcode.split(".")[0], "")
+                if tactic:
+                    s.tactic = tactic
+                    updated += 1
+            db.commit()
+            log.info("[ATOMIC] fix_tactics: updated %d scripts", updated)
+            return updated
+        except Exception as e:
+            log.error("[ATOMIC] fix_tactics failed: %s", str(e))
+            db.rollback()
+            return 0
+        finally:
+            db.close()
+
     def _run_import(self, wipe_first: bool) -> dict:
         from database import SessionLocal
         from models.script import Script
 
         db = SessionLocal()
         stats = {"loaded": 0, "updated": 0, "skipped": 0, "errors": 0}
+
+        tactic_map = self._build_tactic_map()
 
         try:
             if wipe_first:
@@ -82,7 +136,7 @@ class AtomicLoader:
 
             for yaml_file in yaml_files:
                 try:
-                    new, updated, skipped = self._load_file(db, yaml_file, upsert=not wipe_first)
+                    new, updated, skipped = self._load_file(db, yaml_file, tactic_map, upsert=not wipe_first)
                     stats["loaded"] += new
                     stats["updated"] += updated
                     stats["skipped"] += skipped
@@ -104,7 +158,7 @@ class AtomicLoader:
         finally:
             db.close()
 
-    def _load_file(self, db, yaml_file: Path, upsert: bool) -> Tuple[int, int, int]:
+    def _load_file(self, db, yaml_file: Path, tactic_map: dict, upsert: bool) -> Tuple[int, int, int]:
         """Returns (new_count, updated_count, skipped_count)."""
         from models.script import Script
 
@@ -115,12 +169,10 @@ class AtomicLoader:
             return 0, 0, 0
 
         attack_technique = data.get("attack_technique", "")
-        tactic = ""
-        if data.get("attack_tactic"):
-            tactic = data["attack_tactic"]
-        elif data.get("attack_tactics"):
-            tactics = data["attack_tactics"]
-            tactic = tactics[0] if tactics else ""
+        tcode_upper = attack_technique.upper()
+        tactic = tactic_map.get(tcode_upper, "")
+        if not tactic and "." in tcode_upper:
+            tactic = tactic_map.get(tcode_upper.split(".")[0], "")
 
         atomic_tests = data.get("atomic_tests", [])
         if not atomic_tests:
