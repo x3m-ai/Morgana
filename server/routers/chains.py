@@ -294,7 +294,7 @@ def execute_chain(chain_id: str, body: ExecuteRequest, db: Session = Depends(get
     # Spawn background thread
     t = threading.Thread(
         target=_run_chain,
-        args=(exec_id, nodes, agent.paw),
+        args=(exec_id, nodes, agent.paw, c.name),
         daemon=True,
     )
     t.start()
@@ -304,13 +304,13 @@ def execute_chain(chain_id: str, body: ExecuteRequest, db: Session = Depends(get
 
 # ─── Background execution engine ──────────────────────────────────────────────
 
-def _run_chain(exec_id: str, nodes: list, agent_paw: str):
+def _run_chain(exec_id: str, nodes: list, agent_paw: str, chain_name: str = ""):
     """Background thread: walk nodes, dispatch jobs, record step logs."""
     db = SessionLocal()
     step_logs = []
     try:
         last_stdout = ""
-        last_stdout = _walk_nodes(db, exec_id, nodes, agent_paw, step_logs, last_stdout)
+        last_stdout = _walk_nodes(db, exec_id, nodes, agent_paw, chain_name, step_logs, last_stdout)
         _finish_execution(db, exec_id, "completed", step_logs, None)
         log.info("[SUCCESS] Chain execution %s completed (%d steps)", exec_id, len(step_logs))
     except Exception as exc:
@@ -321,13 +321,13 @@ def _run_chain(exec_id: str, nodes: list, agent_paw: str):
 
 
 def _walk_nodes(db: Session, exec_id: str, nodes: list, agent_paw: str,
-                step_logs: list, last_stdout: str) -> str:
+                chain_name: str, step_logs: list, last_stdout: str) -> str:
     """Recurse through a node list, executing scripts and branching on if_else."""
     for node in nodes:
         ntype = node.get("type", "script")
 
         if ntype == "script":
-            result = _run_script_node(db, node, agent_paw, step_logs)
+            result = _run_script_node(db, node, agent_paw, chain_name, step_logs)
             last_stdout = result.get("stdout", "")
             _update_execution_logs(db, exec_id, step_logs)
 
@@ -347,12 +347,12 @@ def _walk_nodes(db: Session, exec_id: str, nodes: list, agent_paw: str,
             _update_execution_logs(db, exec_id, step_logs)
 
             branch_nodes = node.get("if_nodes", []) if matched else node.get("else_nodes", [])
-            last_stdout = _walk_nodes(db, exec_id, branch_nodes, agent_paw, step_logs, last_stdout)
+            last_stdout = _walk_nodes(db, exec_id, branch_nodes, agent_paw, chain_name, step_logs, last_stdout)
 
     return last_stdout
 
 
-def _run_script_node(db: Session, node: dict, agent_paw: str, step_logs: list) -> dict:
+def _run_script_node(db: Session, node: dict, agent_paw: str, chain_name: str, step_logs: list) -> dict:
     """Create a Test+Job, enqueue on agent, poll until done, return outputs."""
     script_id = node.get("script_id")
     node_id   = node.get("id", "")
@@ -410,7 +410,7 @@ def _run_script_node(db: Session, node: dict, agent_paw: str, step_logs: list) -
         script_id=s.id,
         tcode=s.tcode,
         agent_id=agent.id,
-        operation_name=f"chain:{s.name}",
+        operation_name=f"chain:{chain_name or s.name}",
         state="pending",
     )
     db.add(test)
