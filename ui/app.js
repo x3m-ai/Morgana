@@ -1198,7 +1198,7 @@ async function loadChainExecutionsList() {
 // ── CRUD ──────────────────────────────────────────────────────────────────────
 
 function newChain() {
-  _editingChain = { id: null, name: "New Chain", description: "", nodes: [] };
+  _editingChain = { id: null, name: "New Chain", description: "", agent_paw: "", nodes: [] };
   _openChainEditor();
 }
 
@@ -1209,6 +1209,7 @@ async function editChain(id) {
       id:          c.id,
       name:        c.name,
       description: c.description || "",
+      agent_paw:   c.agent_paw || "",
       nodes:       (c.flow && c.flow.nodes) ? c.flow.nodes : [],
     };
     _openChainEditor();
@@ -1225,6 +1226,22 @@ function _openChainEditor() {
   document.getElementById("chain-desc-input").value          = _editingChain.description;
   const execBtn = document.getElementById("chain-exec-btn");
   if (execBtn) execBtn.disabled = !_editingChain.id;
+  // Populate agent selector
+  const sel = document.getElementById("chain-agent-sel");
+  if (sel) {
+    sel.innerHTML = `<option value="">-- select agent --</option>`;
+    apiFetch("/api/v2/agents").then((agents) => {
+      (agents || []).forEach((a) => {
+        const label = a.alias || a.host || a.hostname || a.paw;
+        const status = a.status || "unknown";
+        const opt = document.createElement("option");
+        opt.value       = a.paw;
+        opt.textContent = `${label} [${a.paw}] - ${status}`;
+        if (a.paw === _editingChain.agent_paw) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }).catch(() => {});
+  }
   renderChainFlow();
 }
 
@@ -1234,14 +1251,16 @@ function closeChainEditor() {
 }
 
 async function saveChain() {
-  const name = (document.getElementById("chain-name-input").value || "").trim();
-  const desc = (document.getElementById("chain-desc-input").value || "").trim();
+  const name      = (document.getElementById("chain-name-input").value || "").trim();
+  const desc      = (document.getElementById("chain-desc-input").value || "").trim();
+  const agentPaw  = (document.getElementById("chain-agent-sel").value || "").trim();
   if (!name) { alert("Chain name is required."); return; }
 
   _editingChain.name        = name;
   _editingChain.description = desc;
+  _editingChain.agent_paw   = agentPaw;
 
-  const body = { name, description: desc, flow: { nodes: _editingChain.nodes } };
+  const body = { name, description: desc, agent_paw: agentPaw || null, flow: { nodes: _editingChain.nodes } };
   try {
     let saved;
     if (_editingChain.id) {
@@ -1309,29 +1328,9 @@ function importChainJSON() {
 
 async function executeChainFromEditor() {
   if (!_editingChain.id) { alert("Save the chain first."); return; }
-  // Populate agent selector
-  const sel = document.getElementById("chain-exec-agent-sel");
-  sel.innerHTML = `<option value="">-- select agent --</option>`;
-  try {
-    const agents = await apiFetch("/api/v2/agents");
-    (agents || []).filter((a) => a.alive).forEach((a) => {
-      const opt = document.createElement("option");
-      opt.value       = a.paw;
-      opt.textContent = `${a.hostname || a.paw} [${a.paw}]`;
-      sel.appendChild(opt);
-    });
-  } catch (_) {}
-  document.getElementById("chainExecModal").classList.remove("hidden");
-}
-
-function closeChainExecModal() {
-  document.getElementById("chainExecModal").classList.add("hidden");
-}
-
-async function confirmExecuteChain() {
-  const paw = document.getElementById("chain-exec-agent-sel").value;
-  if (!paw) { alert("Select an agent first."); return; }
-  closeChainExecModal();
+  const paw = (document.getElementById("chain-agent-sel").value || "").trim();
+  if (!paw) { alert("Select a Default Agent before executing."); return; }
+  if (!confirm(`Execute chain "${_editingChain.name}" on agent ${paw}?`)) return;
   try {
     const r = await apiFetch(`/api/v2/chains/${_editingChain.id}/execute`, {
       method: "POST",

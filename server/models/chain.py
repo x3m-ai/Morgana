@@ -17,6 +17,7 @@ class Chain(Base):
     author = Column(String)
     tags = Column(String)           # JSON array
     flow_json  = Column(Text, default='{"nodes":[]}')   # Visual flow definition
+    agent_paw  = Column(String)        # Default agent to execute this chain
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

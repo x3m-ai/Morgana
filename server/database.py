@@ -66,6 +66,7 @@ def _migrate():
     migrations = [
         ("agents", "alias", "TEXT"),
         ("chains", "flow_json", "TEXT"),
+        ("chains", "agent_paw", "TEXT"),
     ]
     with engine.connect() as conn:
         for table, col, col_type in migrations:

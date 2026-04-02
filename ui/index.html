@@ -343,16 +343,20 @@
           </div>
 
           <div class="card" style="margin-bottom:16px">
-            <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
-              <div style="display:flex;gap:12px;flex-wrap:wrap">
-                <div style="flex:1;min-width:200px">
-                  <label class="form-label">Name</label>
-                  <input type="text" id="chain-name-input" class="form-input" placeholder="e.g. Credential Harvesting" />
-                </div>
-                <div style="flex:2;min-width:200px">
-                  <label class="form-label">Description</label>
-                  <input type="text" id="chain-desc-input" class="form-input" placeholder="Brief objective..." />
-                </div>
+            <div class="card-body">
+              <div class="form-group">
+                <label>Name *</label>
+                <input type="text" id="chain-name-input" class="search-input" style="width:100%" placeholder="e.g. Credential Harvesting" />
+              </div>
+              <div class="form-group" style="margin-top:.8rem">
+                <label>Description</label>
+                <input type="text" id="chain-desc-input" class="search-input" style="width:100%" placeholder="Brief objective of this chain..." />
+              </div>
+              <div class="form-group" style="margin-top:.8rem">
+                <label>Default Agent</label>
+                <select id="chain-agent-sel" class="select-input" style="width:100%">
+                  <option value="">-- select agent --</option>
+                </select>
               </div>
             </div>
           </div>
@@ -696,25 +700,6 @@
   </div>
 
   <!-- Chain: Execute Modal (pick agent) -->
-  <div id="chainExecModal" class="modal hidden">
-    <div class="modal-content" style="max-width:420px">
-      <div class="modal-header">
-        <h3>Execute Chain</h3>
-        <button class="modal-close" onclick="closeChainExecModal()">&times;</button>
-      </div>
-      <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
-        <p style="margin:0;color:var(--text-secondary)">Select the agent to run this chain on:</p>
-        <select id="chain-exec-agent-sel" class="select-input" style="width:100%">
-          <option value="">-- select agent --</option>
-        </select>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-primary" onclick="confirmExecuteChain()">Execute</button>
-        <button class="btn btn-secondary" onclick="closeChainExecModal()">Cancel</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Chain: Execution Log Modal -->
   <div id="chainExecLogModal" class="modal hidden">
     <div class="modal-content" style="max-width:860px;width:96%;max-height:86vh;overflow:hidden;display:flex;flex-direction:column">

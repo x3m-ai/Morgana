@@ -57,16 +57,18 @@ class ChainCreate(BaseModel):
     name: str
     description: Optional[str] = ""
     flow: Optional[dict] = None     # {"nodes": [...]}
+    agent_paw: Optional[str] = None
 
 
 class ChainUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     flow: Optional[dict] = None
+    agent_paw: Optional[str] = None
 
 
 class ExecuteRequest(BaseModel):
-    agent_paw: str
+    agent_paw: Optional[str] = None  # if omitted, use chain's default agent_paw
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -81,6 +83,7 @@ def _chain_to_dict(c: Chain) -> dict:
         "id":          c.id,
         "name":        c.name,
         "description": c.description or "",
+        "agent_paw":   c.agent_paw or "",
         "objective":   c.objective or "",
         "author":      c.author or "",
         "tags":        c.tags or "",
@@ -129,6 +132,7 @@ def create_chain(body: ChainCreate, db: Session = Depends(get_db)):
         name=body.name,
         description=body.description or "",
         flow_json=flow_str,
+        agent_paw=body.agent_paw or None,
     )
     db.add(c)
     db.commit()
@@ -222,6 +226,8 @@ def update_chain(chain_id: str, body: ChainUpdate, db: Session = Depends(get_db)
         c.description = body.description
     if body.flow is not None:
         c.flow_json = json.dumps(body.flow)
+    if body.agent_paw is not None:
+        c.agent_paw = body.agent_paw or None
     c.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(c)
@@ -249,9 +255,13 @@ def execute_chain(chain_id: str, body: ExecuteRequest, db: Session = Depends(get
     if not c:
         raise HTTPException(status_code=404, detail="Chain not found")
 
-    agent = db.query(Agent).filter(Agent.paw == body.agent_paw).first()
+    # Resolve agent: use body.agent_paw if provided, otherwise fall back to chain's default
+    paw = (body.agent_paw or "").strip() or (c.agent_paw or "").strip()
+    if not paw:
+        raise HTTPException(status_code=400, detail="No agent selected. Set a default agent on the chain or pass agent_paw.")
+    agent = db.query(Agent).filter(Agent.paw == paw).first()
     if not agent:
-        raise HTTPException(status_code=404, detail=f"Agent not found: {body.agent_paw}")
+        raise HTTPException(status_code=404, detail=f"Agent not found: {paw}")
 
     # Parse flow
     try:
