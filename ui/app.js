@@ -1452,7 +1452,7 @@ function _renderScriptNodeHTML(node, branch, ifElseId) {
       <div class="csn-tcode">${escHtml(node.tcode || "?")}</div>
       <div class="csn-name">${escHtml(node.script_name || "Unknown Script")}</div>
       <div class="csn-actions">
-        <button class="btn btn-secondary btn-sm" onclick="replaceChainScript('${nid}','${br}','${iid}')">Change</button>
+        <button class="btn btn-secondary btn-sm" onclick="replaceChainScript('${nid}','${br}','${iid}')">Open</button>
         <button class="btn btn-danger btn-sm"    onclick="removeChainNode('${nid}','${br}','${iid}')">Remove</button>
       </div>
     </div>`;
@@ -1618,15 +1618,15 @@ function _renderCspTable(scripts) {
 function chainPickScript(scriptId) {
   const s = allScripts.find((x) => x.id === scriptId);
   if (!s || !_chainPickerCtx) return;
+  const ctx = _chainPickerCtx; // save BEFORE closeChainScriptPicker nulls it
   closeChainScriptPicker();
 
-  if (_chainPickerCtx.type === "replace") {
+  if (ctx.type === "replace") {
     // Replace the node already in the tree
-    const nid = _chainPickerCtx.nodeId;
-    _walkAndReplace(_editingChain.nodes, nid, s);
+    _walkAndReplace(_editingChain.nodes, ctx.nodeId, s);
   } else {
     // Insert new node at position
-    const { branch, index, ifElseId } = _chainPickerCtx;
+    const { branch, index, ifElseId } = ctx;
     const node = {
       id:          _genNodeId(),
       type:        "script",
@@ -1637,7 +1637,6 @@ function chainPickScript(scriptId) {
     };
     _insertNodeAt(_editingChain.nodes, node, branch, index, ifElseId);
   }
-  _chainPickerCtx = null;
   renderChainFlow();
 }
 
@@ -1650,7 +1649,7 @@ function replaceChainScript(nodeId, branch, ifElseIdStr) {
 // ── Remove node ───────────────────────────────────────────────────────────────
 
 function removeChainNode(nodeId, branch, ifElseIdStr) {
-  if (!confirm("Remove this node and all nodes below it in this branch?")) return;
+  if (!confirm("WARNING: This will remove the selected node AND all nodes that follow it in this branch.\nThis action cannot be undone.\n\nContinue?")) return;
   const ifElseId = (ifElseIdStr === "null") ? null : ifElseIdStr;
   _walkAndRemove(_editingChain.nodes, nodeId, branch, ifElseId);
   renderChainFlow();
