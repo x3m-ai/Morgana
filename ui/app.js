@@ -74,6 +74,7 @@ async function apiFetch(path, options = {}) {
     },
   });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  if (resp.status === 204 || resp.headers.get("content-length") === "0") return null;
   return resp.json();
 }
 
@@ -286,29 +287,91 @@ function filterScripts() {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
+let _testDetailId = null;
+
 async function loadTests() {
+  const tbody = document.getElementById("testsTableBody");
   try {
-    const realtime = await apiFetch("/api/v2/merlino/realtime?window=24h");
-    const tbody = document.getElementById("testsTableBody");
-    const ops = realtime.operations || [];
-    if (!ops.length) {
-      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">No tests in the last 24 hours</td></tr>`;
+    const tests = await apiFetch("/api/v2/tests?limit=200");
+    if (!tests.length) {
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">No tests yet</td></tr>`;
       return;
     }
-    tbody.innerHTML = ops.map((op) => `
-      <tr>
-        <td>${escHtml(op.name || "-")}</td>
-        <td>${(op.tcodes || []).map((t) => `<span class="tcode">${t}</span>`).join(" ")}</td>
-        <td>${escHtml(op.adversary || "-")}</td>
-        <td>${stateBadge(op.state)}</td>
-        <td>${op.error_count > 0 ? `<span style="color:var(--danger)">${op.error_count} errors</span>` : `<span style="color:var(--success)">${op.success_count} ok</span>`}</td>
-        <td>${op.total_abilities || 1}</td>
-        <td>${fmtDate(op.started)}</td>
-        <td>${fmtDate(op.finish_time)}</td>
-      </tr>
-    `).join("");
+    tbody.innerHTML = tests.map((t) => {
+      const agent = t.agent_hostname ? `${escHtml(t.agent_hostname)} [${escHtml(t.agent_paw || "")}]` : "-";
+      const dur = t.duration_ms != null ? `${t.duration_ms} ms` : "-";
+      const tcode = t.tcode ? `<span class="tcode">${escHtml(t.tcode)}</span>` : "-";
+      const op = escHtml(t.operation_name || "-");
+      return `<tr>
+        <td style="white-space:nowrap;font-size:0.8rem">${fmtDateTime(t.created_at)}</td>
+        <td>${tcode}</td>
+        <td>${op}</td>
+        <td>${escHtml(agent)}</td>
+        <td>${stateBadge(t.state)}</td>
+        <td style="text-align:center">${t.exit_code != null ? t.exit_code : "-"}</td>
+        <td style="white-space:nowrap">${dur}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-secondary btn-sm" onclick="openTestModal('${escHtml(t.id)}')">View</button>
+          <button class="btn btn-danger btn-sm" style="margin-left:4px" onclick="deleteTest('${escHtml(t.id)}')">Delete</button>
+        </td>
+      </tr>`;
+    }).join("");
   } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-row">Error: ${escHtml(err.message)}</td></tr>`;
     console.error("[TESTS] Load failed:", err.message);
+  }
+}
+
+async function openTestModal(testId) {
+  _testDetailId = testId;
+  try {
+    const t = await apiFetch(`/api/v2/tests/${testId}`);
+    document.getElementById("testDetailTitle").textContent = `Test: ${t.tcode || t.operation_name || testId.slice(0,8)}`;
+    document.getElementById("td-id").textContent = t.id;
+    document.getElementById("td-tcode").textContent = t.tcode || "-";
+    document.getElementById("td-state").innerHTML = stateBadge(t.state);
+    document.getElementById("td-exit").textContent = t.exit_code != null ? t.exit_code : "-";
+    document.getElementById("td-agent").textContent = t.agent_hostname ? `${t.agent_hostname} [${t.agent_paw}]` : "-";
+    document.getElementById("td-duration").textContent = t.duration_ms != null ? `${t.duration_ms} ms` : "-";
+    document.getElementById("td-created").textContent = fmtDateTime(t.created_at);
+    document.getElementById("td-finished").textContent = fmtDateTime(t.finished_at);
+    document.getElementById("td-stdout").textContent = t.stdout || "(no output)";
+    document.getElementById("td-stderr").textContent = t.stderr || "";
+    document.getElementById("testDetailModal").classList.remove("hidden");
+  } catch (err) {
+    alert("Could not load test: " + err.message);
+  }
+}
+
+function closeTestModal() {
+  document.getElementById("testDetailModal").classList.add("hidden");
+  _testDetailId = null;
+}
+
+async function deleteTestFromModal() {
+  if (!_testDetailId) return;
+  if (!confirm("Delete this test?")) return;
+  await deleteTest(_testDetailId);
+  closeTestModal();
+}
+
+async function deleteTest(testId) {
+  if (!confirm("Delete this test? This cannot be undone.")) return;
+  try {
+    await apiFetch(`/api/v2/tests/${testId}`, { method: "DELETE" });
+    await loadTests();
+  } catch (err) {
+    alert("Delete failed: " + err.message);
+  }
+}
+
+async function deleteAllTests() {
+  if (!confirm("Delete ALL tests and their output? This cannot be undone.")) return;
+  try {
+    await apiFetch("/api/v2/tests", { method: "DELETE" });
+    await loadTests();
+  } catch (err) {
+    alert("Delete all failed: " + err.message);
   }
 }
 
@@ -333,6 +396,16 @@ function fmtDate(isoStr) {
   try {
     const d = new Date(isoStr);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  } catch { return isoStr; }
+}
+
+function fmtDateTime(isoStr) {
+  if (!isoStr) return "-";
+  try {
+    const d = new Date(isoStr);
+    const date = d.toLocaleDateString([], { day: "2-digit", month: "2-digit", year: "2-digit" });
+    const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    return `${date} ${time}`;
   } catch { return isoStr; }
 }
 

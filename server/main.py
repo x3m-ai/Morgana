@@ -146,6 +146,10 @@ app.include_router(tags_router, prefix="/api/v2/tags", tags=["tags"])
 # Jobs (output polling)
 app.include_router(jobs_router, prefix="/api/v2/jobs", tags=["jobs"])
 
+# Tests CRUD + delete
+from routers.tests import router as tests_router
+app.include_router(tests_router, prefix="/api/v2/tests", tags=["tests"])
+
 # Console (WebSocket reverse shell broker)
 app.include_router(console_router, prefix="/api/v2/console", tags=["console"])
 

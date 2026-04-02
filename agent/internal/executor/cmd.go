@@ -5,11 +5,24 @@ import (
 	"bytes"
 	"context"
 	"os/exec"
+	"strings"
 )
 
 func runCmd(ctx context.Context, command string) (*Result, error) {
+	// Join multi-line commands with " & " so cmd.exe executes them in sequence
+	// within the same shell process (preserving cd, env vars, etc.)
+	normalized := strings.ReplaceAll(command, "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
+	var nonEmpty []string
+	for _, l := range lines {
+		if strings.TrimSpace(l) != "" {
+			nonEmpty = append(nonEmpty, l)
+		}
+	}
+	script := strings.Join(nonEmpty, " & ")
+
 	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, "cmd.exe", "/C", command)
+	cmd := exec.CommandContext(ctx, "cmd.exe", "/C", script)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
