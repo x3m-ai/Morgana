@@ -2057,6 +2057,8 @@ async function saveCampaign() {
     document.getElementById("campaign-editor-title").textContent = saved.name;
     document.getElementById("camp-exec-btn").disabled = false;
     _campaignDirty = false;
+    alert("Campaign saved.");
+    loadCampaigns();
   } catch (err) {
     alert("Save failed: " + err.message);
   }
