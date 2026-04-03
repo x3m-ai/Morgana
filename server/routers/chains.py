@@ -349,6 +349,61 @@ def _walk_nodes(db: Session, exec_id: str, nodes: list, agent_paw: str,
             branch_nodes = node.get("if_nodes", []) if matched else node.get("else_nodes", [])
             last_stdout = _walk_nodes(db, exec_id, branch_nodes, agent_paw, chain_name, step_logs, last_stdout)
 
+        elif ntype == "parallel":
+            node_id  = node.get("id", "")
+            branches = node.get("branches", [])
+
+            par_entry = {
+                "node_id":  node_id,
+                "type":     "parallel",
+                "state":    "running",
+                "branches": [],
+            }
+            idx_in_logs = len(step_logs)
+            step_logs.append(par_entry)
+            _update_execution_logs(db, exec_id, step_logs)
+
+            branch_results = [None] * len(branches)
+            lock = threading.Lock()
+
+            def run_branch(branch_idx: int, branch_nodes: list):
+                b_logs = []
+                try:
+                    b_last = _walk_nodes(db, exec_id, branch_nodes, agent_paw, chain_name, b_logs, last_stdout)
+                    with lock:
+                        branch_results[branch_idx] = {
+                            "branch_index": branch_idx,
+                            "state":        "completed",
+                            "steps":        b_logs,
+                            "last_stdout":  b_last,
+                        }
+                except Exception as exc:
+                    with lock:
+                        branch_results[branch_idx] = {
+                            "branch_index": branch_idx,
+                            "state":        "failed",
+                            "error":        str(exc),
+                            "steps":        b_logs,
+                        }
+
+            threads = [
+                threading.Thread(target=run_branch, args=(i, branch), daemon=True)
+                for i, branch in enumerate(branches)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            all_ok = all(r and r.get("state") == "completed" for r in branch_results)
+            step_logs[idx_in_logs]["state"]    = "completed" if all_ok else "partial"
+            step_logs[idx_in_logs]["branches"] = [
+                r or {"branch_index": i, "state": "failed", "steps": []}
+                for i, r in enumerate(branch_results)
+            ]
+            _update_execution_logs(db, exec_id, step_logs)
+            # Parallel branches run independently; last_stdout stays as it was before parallel
+
     return last_stdout
 
 

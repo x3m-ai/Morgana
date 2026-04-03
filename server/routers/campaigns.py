@@ -232,7 +232,7 @@ def _run_campaign(exec_id: str, nodes: list, agent_paw: str, campaign_name: str 
     db = SessionLocal()
     step_logs = []
     try:
-        _walk_campaign_nodes(db, exec_id, nodes, agent_paw, step_logs)
+        _walk_campaign_nodes(db, exec_id, nodes, agent_paw, step_logs, "")
         _finish_campaign(db, exec_id, "completed", step_logs, None)
         log.info("[SUCCESS] Campaign execution %s completed (%d steps)", exec_id, len(step_logs))
     except Exception as exc:
@@ -259,16 +259,37 @@ def _update_campaign_logs(db, exec_id: str, step_logs: list):
         db.commit()
 
 
-def _walk_campaign_nodes(db, exec_id: str, nodes: list, agent_paw: str, step_logs: list):
-    """Walk campaign nodes sequentially, dispatching chains and parallel groups."""
+def _walk_campaign_nodes(db, exec_id: str, nodes: list, agent_paw: str,
+                         step_logs: list, last_output: str = "") -> str:
+    """Walk campaign nodes sequentially, dispatching chains, parallels, and if/else."""
     for node in nodes:
         ntype = node.get("type", "chain")
         if ntype == "chain":
             result = _run_chain_step(node, agent_paw)
             step_logs.append(result)
             _update_campaign_logs(db, exec_id, step_logs)
+            # Track last stdout for if/else condition evaluation
+            chain_steps = result.get("steps", [])
+            if chain_steps:
+                last_output = chain_steps[-1].get("stdout", "") or last_output
         elif ntype == "parallel":
             _run_parallel_node(db, exec_id, node, agent_paw, step_logs)
+        elif ntype == "if_else":
+            contains = (node.get("contains") or "").lower().strip()
+            matched = contains != "" and contains in last_output.lower()
+            branch_taken = "if" if matched else "else"
+            step_logs.append({
+                "node_id":             node.get("id", ""),
+                "type":                "if_else",
+                "contains":            contains,
+                "matched":             matched,
+                "branch_taken":        branch_taken,
+                "last_output_snippet": last_output[:200],
+            })
+            _update_campaign_logs(db, exec_id, step_logs)
+            branch_nodes = node.get("if_nodes", []) if matched else node.get("else_nodes", [])
+            last_output = _walk_campaign_nodes(db, exec_id, branch_nodes, agent_paw, step_logs, last_output)
+    return last_output
 
 
 def _run_chain_step(node: dict, agent_paw: str) -> dict:

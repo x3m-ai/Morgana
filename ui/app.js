@@ -801,12 +801,13 @@ async function executeScriptFromModal() {
         body: JSON.stringify({ paw }),
       });
     } else {
-      // New Script modal - run ad-hoc without saving
-      const executor = document.getElementById("sm-executor").value || "powershell";
-      const cleanup = (document.getElementById("sm-cleanup").value || "").trim();
-      result = await apiFetch("/api/v2/scripts/execute-adhoc", {
+      // Script not saved yet - offer to save first
+      if (!confirm("Script not saved yet. Save now before executing?")) return;
+      await saveScriptFromModal();
+      if (!_currentScriptId) return; // save failed or validation error
+      result = await apiFetch(`/api/v2/scripts/${_currentScriptId}/execute`, {
         method: "POST",
-        body: JSON.stringify({ command, cleanup_command: cleanup, executor, paw }),
+        body: JSON.stringify({ paw }),
       });
     }
     if (!result.queued) {
@@ -1417,7 +1418,11 @@ function importChainJSON() {
 // ── Execute ───────────────────────────────────────────────────────────────────
 
 async function executeChainFromEditor() {
-  if (!_editingChain.id) { alert("Save the chain first."); return; }
+  if (!_editingChain.id) {
+    if (!confirm("Chain not saved yet. Save now before executing?")) return;
+    await saveChain();
+    if (!_editingChain.id) return;
+  }
   const paw = (document.getElementById("chain-agent-sel").value || "").trim();
   if (!paw) { alert("Select a Default Agent before executing."); return; }
   if (!confirm(`Execute chain "${_editingChain.name}" on agent ${paw}?`)) return;
@@ -1517,11 +1522,12 @@ function _buildFlowHTML(nodes, branch, ifElseId) {
   html += _addBtnHTML(branch, 0, ifElseId);
 
   nodes.forEach((node, idx) => {
+    html += `<div class="chain-vline"></div>`;
     if (node.type === "if_else") {
-      html += `<div class="chain-vline"></div>`;
       html += _renderIfElseNodeHTML(node, branch, ifElseId);
+    } else if (node.type === "parallel") {
+      html += _renderChainParallelNodeHTML(node, branch, ifElseId);
     } else {
-      html += `<div class="chain-vline"></div>`;
       html += _renderScriptNodeHTML(node, branch, ifElseId);
     }
     // Add button after this node
@@ -1575,6 +1581,33 @@ function _renderIfElseNodeHTML(node, branch, ifElseId) {
         <div class="chain-branch-label">ELSE</div>
         ${_buildFlowHTML(node.else_nodes || [], "else_nodes", node.id)}
       </div>
+    </div>`;
+}
+
+function _renderChainParallelNodeHTML(node, branch, ifElseId) {
+  const nid = escHtml(node.id);
+  const br  = escHtml(branch);
+  const iid = ifElseId ? escHtml(ifElseId) : "null";
+  let branchesHTML = "";
+  (node.branches || []).forEach((bNodes, i) => {
+    branchesHTML += `
+      <div class="camp-branch-col">
+        <div class="camp-branch-header">
+          <span style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Branch ${i + 1}</span>
+          <button class="btn btn-danger btn-sm" style="margin-left:auto;font-size:10px" onclick="removeChainParallelBranch('${nid}',${i})">Remove branch</button>
+        </div>
+        ${_buildFlowHTML(bNodes, "par_branch", nid + "_" + i)}
+        <button class="btn btn-secondary btn-sm" style="margin-top:6px;font-size:11px" onclick="chainParallelAddScript('${nid}',${i})">+ script</button>
+      </div>`;
+  });
+  return `
+    <div class="camp-parallel-node" id="cnode-${nid}">
+      <div class="cpar-header">
+        [PARALLEL]
+        <button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="addChainParallelBranch('${nid}')">+ Branch</button>
+        <button class="btn btn-danger btn-sm" onclick="removeChainNode('${nid}','${br}','${iid}')">Remove</button>
+      </div>
+      <div class="camp-parallel-branches">${branchesHTML || '<div style="color:var(--text-muted);padding:12px;font-size:12px">No branches yet. Click &quot;+ Branch&quot;.</div>'}</div>
     </div>`;
 }
 
@@ -1635,6 +1668,39 @@ function chainMenuAddIfElse() {
   };
   _insertNodeAt(_editingChain.nodes, node, branch, index, ifElseId);
   renderChainFlow();
+}
+
+function chainMenuAddParallel() {
+  const ctx = _chainAddMenuCtx;
+  closeChainAddMenu();
+  if (!ctx) return;
+  const node = {
+    id:       _genNodeId(),
+    type:     "parallel",
+    branches: [[], []],
+  };
+  _insertNodeAt(_editingChain.nodes, node, ctx.branch, ctx.index, ctx.ifElseId);
+  renderChainFlow();
+}
+
+function addChainParallelBranch(parallelNodeId) {
+  _chainWalkAndModifyParallel(_editingChain.nodes, parallelNodeId, (pNode) => {
+    pNode.branches.push([]);
+  });
+  renderChainFlow();
+}
+
+function removeChainParallelBranch(parallelNodeId, branchIdx) {
+  if (!confirm("Remove this branch and all its scripts?")) return;
+  _chainWalkAndModifyParallel(_editingChain.nodes, parallelNodeId, (pNode) => {
+    pNode.branches.splice(branchIdx, 1);
+  });
+  renderChainFlow();
+}
+
+function chainParallelAddScript(parallelNodeId, branchIdx) {
+  _chainPickerCtx = { type: "par_branch", parallelNodeId, branchIdx };
+  _openChainScriptPicker();
 }
 
 // ── Script picker (re-uses allScripts) ───────────────────────────────────────
@@ -1713,6 +1779,21 @@ function chainPickScript(scriptId) {
   if (ctx.type === "replace") {
     // Replace the node already in the tree
     _walkAndReplace(_editingChain.nodes, ctx.nodeId, s);
+  } else if (ctx.type === "par_branch") {
+    // Append to a specific parallel branch
+    const node = {
+      id:          _genNodeId(),
+      type:        "script",
+      script_id:   s.id,
+      script_name: s.name,
+      tcode:       s.tcode,
+      tactic:      s.tactic,
+    };
+    _chainWalkAndModifyParallel(_editingChain.nodes, ctx.parallelNodeId, (pNode) => {
+      if (pNode.branches[ctx.branchIdx]) {
+        pNode.branches[ctx.branchIdx].push(node);
+      }
+    });
   } else {
     // Insert new node at position
     const { branch, index, ifElseId } = ctx;
@@ -1758,15 +1839,28 @@ function _genNodeId() {
 
 /**
  * Insert a node into the right place in the tree.
- * - branch = "root"       -> top-level nodes array
- * - branch = "if_nodes"   -> if_nodes of the if/else with ifElseId
- * - branch = "else_nodes" -> else_nodes of the if/else with ifElseId
+ * - branch = "root"        -> top-level nodes array
+ * - branch = "if_nodes"    -> if_nodes of the if/else with ifElseId
+ * - branch = "else_nodes"  -> else_nodes of the if/else with ifElseId
+ * - branch = "par_branch"  -> parallel branch; ifElseId = "parallelNodeId_branchIdx"
  */
 function _insertNodeAt(nodes, newNode, branch, index, ifElseId) {
   if (!ifElseId || branch === "root") {
     nodes.splice(index, 0, newNode);
     return true;
   }
+  // Parallel branch context
+  if (branch === "par_branch") {
+    const lastUs    = ifElseId.lastIndexOf("_");
+    const pNodeId   = ifElseId.slice(0, lastUs);
+    const branchIdx = parseInt(ifElseId.slice(lastUs + 1), 10);
+    return _chainWalkAndModifyParallel(nodes, pNodeId, (pNode) => {
+      if (pNode.branches[branchIdx]) {
+        pNode.branches[branchIdx].splice(index, 0, newNode);
+      }
+    });
+  }
+  // If/else branch context
   for (const n of nodes) {
     if (n.type === "if_else") {
       if (n.id === ifElseId) {
@@ -1778,6 +1872,12 @@ function _insertNodeAt(nodes, newNode, branch, index, ifElseId) {
       // recurse into sub-branches
       if (_insertNodeAt(n.if_nodes   || [], newNode, branch, index, ifElseId)) return true;
       if (_insertNodeAt(n.else_nodes || [], newNode, branch, index, ifElseId)) return true;
+    }
+    // recurse into parallel branches (for nested if/else inside parallel)
+    if (n.type === "parallel") {
+      for (const bl of (n.branches || [])) {
+        if (_insertNodeAt(bl, newNode, branch, index, ifElseId)) return true;
+      }
     }
   }
   return false;
@@ -1795,11 +1895,16 @@ function _walkAndRemove(nodes, nodeId, branch, ifElseId) {
     nodes.splice(idx); // remove node + all following in this branch
     return true;
   }
-  // Recurse into if/else sub-branches
+  // Recurse into if/else and parallel sub-branches
   for (const n of nodes) {
     if (n.type === "if_else") {
       if (_walkAndRemove(n.if_nodes   || [], nodeId, "if_nodes",   n.id)) return true;
       if (_walkAndRemove(n.else_nodes || [], nodeId, "else_nodes", n.id)) return true;
+    }
+    if (n.type === "parallel") {
+      for (const bl of (n.branches || [])) {
+        if (_walkAndRemove(bl, nodeId, "par_branch", null)) return true;
+      }
     }
   }
   return false;
@@ -1821,6 +1926,11 @@ function _walkAndReplace(nodes, nodeId, scriptObj) {
       if (_walkAndReplace(n.if_nodes   || [], nodeId, scriptObj)) return true;
       if (_walkAndReplace(n.else_nodes || [], nodeId, scriptObj)) return true;
     }
+    if (n.type === "parallel") {
+      for (const bl of (n.branches || [])) {
+        if (_walkAndReplace(bl, nodeId, scriptObj)) return true;
+      }
+    }
   }
   return false;
 }
@@ -1837,6 +1947,30 @@ function _walkAndUpdateContains(nodes, nodeId, value) {
     if (n.type === "if_else") {
       if (_walkAndUpdateContains(n.if_nodes   || [], nodeId, value)) return true;
       if (_walkAndUpdateContains(n.else_nodes || [], nodeId, value)) return true;
+    }
+    if (n.type === "parallel") {
+      for (const bl of (n.branches || [])) {
+        if (_walkAndUpdateContains(bl, nodeId, value)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function _chainWalkAndModifyParallel(nodes, parallelNodeId, fn) {
+  for (const n of nodes) {
+    if (n.type === "parallel" && n.id === parallelNodeId) {
+      fn(n);
+      return true;
+    }
+    if (n.type === "parallel") {
+      for (const bl of (n.branches || [])) {
+        if (_chainWalkAndModifyParallel(bl, parallelNodeId, fn)) return true;
+      }
+    }
+    if (n.type === "if_else") {
+      if (_chainWalkAndModifyParallel(n.if_nodes   || [], parallelNodeId, fn)) return true;
+      if (_chainWalkAndModifyParallel(n.else_nodes || [], parallelNodeId, fn)) return true;
     }
   }
   return false;
@@ -2072,7 +2206,11 @@ function closeCampaignEditor() {
 }
 
 async function executeCampaignFromEditor() {
-  if (!_editingCampaign.id) { alert("Save the campaign first."); return; }
+  if (!_editingCampaign.id) {
+    if (!confirm("Campaign not saved yet. Save now before executing?")) return;
+    await saveCampaign();
+    if (!_editingCampaign.id) return;
+  }
   const agentPaw = document.getElementById("camp-agent-sel").value;
   if (!agentPaw) { alert("Select an agent before executing."); return; }
   const c = _editingCampaign;
@@ -2146,6 +2284,8 @@ function _buildCampFlowHTML(nodes, branch, parallelId) {
     html += `<div class="chain-vline"></div>`;
     if (node.type === "parallel") {
       html += _renderParallelNodeHTML(node);
+    } else if (node.type === "if_else") {
+      html += _renderCampIfElseNodeHTML(node, branch, parallelId);
     } else {
       html += _renderCampChainNodeHTML(node, branch, parallelId);
     }
@@ -2191,6 +2331,38 @@ function _renderParallelNodeHTML(node) {
         <button class="btn btn-danger btn-sm" onclick="removeCampNode('${nid}','root','null')">Remove</button>
       </div>
       <div class="camp-parallel-branches">${branchesHTML || '<div style="color:var(--text-muted);padding:12px;font-size:12px">No branches yet. Click "+ Branch".</div>'}</div>
+    </div>`;
+}
+
+function _renderCampIfElseNodeHTML(node, branch, parallelId) {
+  const nid = escHtml(node.id);
+  const br  = escHtml(branch);
+  const pid = parallelId ? escHtml(parallelId) : "null";
+  const containsVal = escHtml(node.contains || "");
+  const ifeKey = "ife_" + nid;
+  return `
+    <div class="chain-ifelse-node" id="cpnode-${nid}">
+      <div class="cie-header">
+        [IF/ELSE]
+        <input type="text" class="cie-contains-input"
+          placeholder="stdout of last chain contains..."
+          value="${containsVal}"
+          oninput="updateCampIfElseContains('${nid}', this.value)" />
+        <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="removeCampNode('${nid}','${br}','${pid}')">Remove</button>
+      </div>
+      <div class="cie-hint">Branch taken when stdout of last chain CONTAINS the text above.</div>
+    </div>
+    <div class="chain-branches-row">
+      <div class="chain-branch-col chain-branch-if">
+        <div class="chain-vline"></div>
+        <div class="chain-branch-label">IF TRUE</div>
+        ${_buildCampFlowHTML(node.if_nodes || [], "if_nodes", ifeKey)}
+      </div>
+      <div class="chain-branch-col chain-branch-else">
+        <div class="chain-vline"></div>
+        <div class="chain-branch-label">ELSE</div>
+        ${_buildCampFlowHTML(node.else_nodes || [], "else_nodes", ifeKey)}
+      </div>
     </div>`;
 }
 
@@ -2247,6 +2419,44 @@ function campMenuAddParallel() {
   };
   _campInsertNodeAt(_editingCampaign.nodes, node, ctx.branch, ctx.index, ctx.parallelId);
   renderCampaignFlow();
+}
+
+function campMenuAddIfElse() {
+  const ctx = _campAddMenuCtx;
+  closeCampAddMenu();
+  if (!ctx) return;
+  const node = {
+    id:         _genNodeId(),
+    type:       "if_else",
+    contains:   "",
+    if_nodes:   [],
+    else_nodes: [],
+  };
+  _campInsertNodeAt(_editingCampaign.nodes, node, ctx.branch, ctx.index, ctx.parallelId);
+  renderCampaignFlow();
+}
+
+function updateCampIfElseContains(nodeId, value) {
+  _campWalkAndUpdateIfElseContains(_editingCampaign.nodes, nodeId, value);
+}
+
+function _campWalkAndUpdateIfElseContains(nodes, nodeId, value) {
+  for (const n of nodes) {
+    if (n.type === "if_else" && n.id === nodeId) {
+      n.contains = value;
+      return true;
+    }
+    if (n.type === "if_else") {
+      if (_campWalkAndUpdateIfElseContains(n.if_nodes   || [], nodeId, value)) return true;
+      if (_campWalkAndUpdateIfElseContains(n.else_nodes || [], nodeId, value)) return true;
+    }
+    if (n.type === "parallel") {
+      for (const bl of (n.branches || [])) {
+        if (_campWalkAndUpdateIfElseContains(bl, nodeId, value)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 function addCampParallelBranch(parallelNodeId) {
@@ -2361,15 +2571,41 @@ function _campInsertNodeAt(nodes, newNode, branch, index, parallelId) {
     _editingCampaign.nodes.splice(index, 0, newNode);
     return true;
   }
-  // parallelId format: "parallelNodeId_branchIdx"
-  const lastUs = parallelId.lastIndexOf("_");
-  const pNodeId  = parallelId.slice(0, lastUs);
+  // If/else branch context: parallelId = "ife_nodeId"
+  if (parallelId.startsWith("ife_")) {
+    const ifElseId = parallelId.slice(4);
+    return _campWalkAndInsertInIfElse(_editingCampaign.nodes, ifElseId, branch, index, newNode);
+  }
+  // Parallel branch context: parallelId = "parallelNodeId_branchIdx"
+  const lastUs    = parallelId.lastIndexOf("_");
+  const pNodeId   = parallelId.slice(0, lastUs);
   const branchIdx = parseInt(parallelId.slice(lastUs + 1), 10);
   return _campWalkAndModifyParallel(_editingCampaign.nodes, pNodeId, (pNode) => {
     if (pNode.branches[branchIdx]) {
       pNode.branches[branchIdx].splice(index, 0, newNode);
     }
   });
+}
+
+function _campWalkAndInsertInIfElse(nodes, ifElseId, branch, index, newNode) {
+  for (const n of nodes) {
+    if (n.type === "if_else" && n.id === ifElseId) {
+      const arr = n[branch] || [];
+      arr.splice(index, 0, newNode);
+      n[branch] = arr;
+      return true;
+    }
+    if (n.type === "if_else") {
+      if (_campWalkAndInsertInIfElse(n.if_nodes   || [], ifElseId, branch, index, newNode)) return true;
+      if (_campWalkAndInsertInIfElse(n.else_nodes || [], ifElseId, branch, index, newNode)) return true;
+    }
+    if (n.type === "parallel") {
+      for (const bl of (n.branches || [])) {
+        if (_campWalkAndInsertInIfElse(bl, ifElseId, branch, index, newNode)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 function _campWalkAndRemove(nodes, nodeId) {
@@ -2383,6 +2619,10 @@ function _campWalkAndRemove(nodes, nodeId) {
       for (const branchNodes of (n.branches || [])) {
         if (_campWalkAndRemove(branchNodes, nodeId)) return true;
       }
+    }
+    if (n.type === "if_else") {
+      if (_campWalkAndRemove(n.if_nodes   || [], nodeId)) return true;
+      if (_campWalkAndRemove(n.else_nodes || [], nodeId)) return true;
     }
   }
   return false;
@@ -2399,6 +2639,10 @@ function _campWalkAndReplace(nodes, nodeId, chainObj) {
       for (const branchNodes of (n.branches || [])) {
         if (_campWalkAndReplace(branchNodes, nodeId, chainObj)) return true;
       }
+    }
+    if (n.type === "if_else") {
+      if (_campWalkAndReplace(n.if_nodes   || [], nodeId, chainObj)) return true;
+      if (_campWalkAndReplace(n.else_nodes || [], nodeId, chainObj)) return true;
     }
   }
   return false;
