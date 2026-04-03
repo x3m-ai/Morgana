@@ -39,7 +39,7 @@ Base = declarative_base()
 
 def init_db():
     """Create all tables and apply lightweight migrations."""
-    from models import script, chain, chain_execution, agent, test, campaign, campaign_execution, job, tag  # noqa: F401 - import to register models
+    from models import script, chain, chain_execution, agent, test, campaign, campaign_execution, job, tag, api_key  # noqa: F401 - import to register models
     Base.metadata.create_all(bind=engine)
     _migrate()
     _seed()

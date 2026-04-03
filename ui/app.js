@@ -605,6 +605,9 @@ async function loadAdminStatus() {
     // Load global settings (beacon default)
     loadGlobalSettings();
 
+    // Load API keys table
+    loadApiKeys();
+
   } catch (err) {
     console.error("[ADMIN] Status load failed:", err.message);
   }
@@ -699,6 +702,103 @@ function saveApiKey() {
   setTimeout(() => { saved.style.display = "none"; }, 2000);
   // Reload page to pick up new key
   location.reload();
+}
+
+// ─── API Key management ───────────────────────────────────────────────────────
+
+let _revealedKey = "";
+
+async function loadApiKeys() {
+  const tbody = document.getElementById("apiKeysTableBody");
+  if (!tbody) return;
+  try {
+    const rows = await apiFetch("/api/v2/api-keys");
+    if (!rows || rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty-row">No keys yet. Click [+ New Key] to create one.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(k => `
+      <tr>
+        <td>${k.name}</td>
+        <td><code style="font-size:.8rem;color:var(--accent-color)">${k.key_prefix}...</code></td>
+        <td style="color:var(--text-muted);font-size:.82rem">${k.created_at}</td>
+        <td><button class="btn btn-danger" style="padding:2px 10px;font-size:.78rem" onclick="deleteApiKey('${k.id}','${k.name.replace(/'/g,'&apos;')}')">Revoke</button></td>
+      </tr>`).join("");
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="4" class="empty-row">[ERROR] ${err.message}</td></tr>`;
+  }
+}
+
+function _showNewKeyModal() {
+  const inp = document.getElementById("newKeyNameInput");
+  if (inp) inp.value = "";
+  const btn = document.getElementById("newKeyCreateBtn");
+  if (btn) { btn.disabled = false; btn.textContent = "Create"; }
+  document.getElementById("newKeyModal").classList.remove("hidden");
+  setTimeout(() => { if (inp) inp.focus(); }, 80);
+}
+
+function _closeNewKeyModal() {
+  document.getElementById("newKeyModal").classList.add("hidden");
+}
+
+async function _createApiKeySubmit() {
+  const name = (document.getElementById("newKeyNameInput").value || "").trim();
+  if (!name) { alert("Enter a name for the key."); return; }
+  const btn = document.getElementById("newKeyCreateBtn");
+  btn.disabled = true; btn.textContent = "Creating...";
+  try {
+    const r = await apiFetch("/api/v2/api-keys", {
+      method: "POST",
+      body: JSON.stringify({ name })
+    });
+    _closeNewKeyModal();
+    _showKeyRevealModal(r.key, r.name);
+    loadApiKeys();
+  } catch (err) {
+    alert("[ERROR] " + err.message);
+    btn.disabled = false; btn.textContent = "Create";
+  }
+}
+
+function _showKeyRevealModal(key, name) {
+  _revealedKey = key;
+  const el = document.getElementById("revealKeyValue");
+  if (el) el.textContent = key;
+  document.getElementById("keyRevealModal").classList.remove("hidden");
+}
+
+function _closeKeyRevealModal() {
+  _revealedKey = "";
+  document.getElementById("keyRevealModal").classList.add("hidden");
+}
+
+function _copyRevealedKey() {
+  if (!_revealedKey) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(_revealedKey).then(() => alert("[OK] Key copied to clipboard.")).catch(() => _copyFallback(_revealedKey));
+  } else {
+    _copyFallback(_revealedKey);
+  }
+}
+
+function _useBrowserKey() {
+  if (!_revealedKey) return;
+  localStorage.setItem("morgana_api_key", _revealedKey);
+  const inp = document.getElementById("apiKeyInput");
+  if (inp) inp.value = _revealedKey;
+  _closeKeyRevealModal();
+  alert("[OK] Key saved as browser session key.\nReload the page to activate it for API calls.");
+}
+
+async function deleteApiKey(id, name) {
+  if (!confirm(`Revoke key "${name}"?\n\nAny agent or tool using this key will stop working.`)) return;
+  try {
+    await apiFetch(`/api/v2/api-keys/${id}`, { method: "DELETE" });
+    loadApiKeys();
+  } catch (err) {
+    alert("[ERROR] " + err.message);
+  }
 }
 
 // ─── Script Editor Modal ──────────────────────────────────────────────────────

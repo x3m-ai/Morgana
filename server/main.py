@@ -160,6 +160,10 @@ app.include_router(console_router, prefix="/api/v2/console", tags=["console"])
 from routers.chains import router as chains_router
 app.include_router(chains_router, prefix="/api/v2/chains", tags=["chains"])
 
+# API Key management (create / list / revoke)
+from routers.api_keys import router as api_keys_router
+app.include_router(api_keys_router, prefix="/api/v2/api-keys", tags=["api-keys"])
+
 # Deploy (one-liner install scripts + binary download)
 from routers.deploy import router as deploy_router
 app.include_router(deploy_router, tags=["deploy"])

@@ -572,16 +572,39 @@
           </div>
         </div>
 
-        <!-- API Key config -->
+        <!-- API Key management -->
         <div class="card" style="margin-top:1rem">
-          <div class="card-header"><h2>API Key</h2></div>
+          <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+            <h2>API Keys</h2>
+            <button class="btn btn-primary" onclick="_showNewKeyModal()">+ New Key</button>
+          </div>
           <div class="card-body">
-            <p class="admin-hint">API key used for admin requests. Saved in browser localStorage.</p>
-            <div style="display:flex;gap:.6rem;align-items:center">
-              <input type="password" id="apiKeyInput" class="search-input" style="max-width:340px" placeholder="Enter API key" />
-              <button class="btn btn-primary" onclick="saveApiKey()">Save</button>
-              <span id="apiKeySaved" class="admin-hint" style="display:none">[SAVED]</span>
+            <p class="admin-hint">
+              Keys authorize requests to this Morgana server. The master key is set via
+              <code>MORGANA_API_KEY</code> env var and always works.
+              Keys created here are stored as SHA-256 hashes — save the full value when shown, it will not appear again.
+            </p>
+            <div style="margin-bottom:1rem;padding:.6rem .8rem;background:rgba(0,0,0,.2);border-radius:4px;border:1px solid rgba(255,255,255,.07)">
+              <span style="font-size:.82rem;color:var(--text-muted)">Browser session key (saved in localStorage, used by this tab):</span>
+              <div style="display:flex;gap:.5rem;align-items:center;margin-top:.4rem">
+                <input type="password" id="apiKeyInput" class="search-input" style="max-width:300px;font-size:.82rem" placeholder="Paste key here" />
+                <button class="btn btn-secondary" style="font-size:.8rem;padding:4px 12px" onclick="saveApiKey()">Save</button>
+                <span id="apiKeySaved" class="admin-hint" style="display:none">[SAVED]</span>
+              </div>
             </div>
+            <table class="data-table" id="apiKeysTable">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Key (prefix)</th>
+                  <th>Created</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="apiKeysTableBody">
+                <tr><td colspan="4" class="empty-row">Loading...</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
 
@@ -602,6 +625,45 @@
       </div>
 
     </main>
+  </div>
+
+  <!-- New API key modal -->
+  <div id="newKeyModal" class="modal hidden">
+    <div class="modal-content" style="max-width:400px;width:95%">
+      <div class="modal-header">
+        <h3>Create New API Key</h3>
+        <button class="modal-close" onclick="_closeNewKeyModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label style="font-size:.88rem;color:var(--text-muted)">Key name / label</label>
+        <input type="text" id="newKeyNameInput" class="search-input" style="width:100%;margin-top:.4rem;margin-bottom:1rem" placeholder="e.g. ci-runner, laptop-nino" />
+        <div style="display:flex;gap:.5rem;justify-content:flex-end">
+          <button class="btn btn-secondary" onclick="_closeNewKeyModal()">Cancel</button>
+          <button class="btn btn-primary" id="newKeyCreateBtn" onclick="_createApiKeySubmit()">Create</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- API key reveal modal (shown once after creation) -->
+  <div id="keyRevealModal" class="modal hidden">
+    <div class="modal-content" style="max-width:520px;width:97%">
+      <div class="modal-header">
+        <h3>[SUCCESS] New key created</h3>
+        <button class="modal-close" onclick="_closeKeyRevealModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="color:#f87171;font-weight:600;margin-bottom:.8rem;font-size:.88rem">
+          [WARNING] Copy this key now — it will NOT be shown again.
+        </p>
+        <div class="code-block" id="revealKeyValue" style="font-size:.82rem;word-break:break-all;user-select:all;letter-spacing:.04em;margin-bottom:1rem"></div>
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="_copyRevealedKey()">Copy to clipboard</button>
+          <button class="btn btn-secondary" onclick="_useBrowserKey()">Use as browser key</button>
+          <button class="btn btn-secondary" onclick="_closeKeyRevealModal()" style="margin-left:auto">Close</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Deploy Agent modal -->

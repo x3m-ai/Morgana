@@ -39,8 +39,22 @@ def _save_server_settings(data: dict) -> None:
 
 
 def _require_api_key(key: Optional[str] = Header(None, alias="KEY")):
-    if key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+    """Accept the master env-var key or any DB-stored key."""
+    if not key:
+        raise HTTPException(status_code=401, detail="API key required")
+    if key == settings.api_key:
+        return
+    import hashlib
+    from database import SessionLocal
+    from models.api_key import ApiKey
+    khash = hashlib.sha256(key.encode()).hexdigest()
+    _db = SessionLocal()
+    try:
+        row = _db.query(ApiKey).filter(ApiKey.key_hash == khash).first()
+        if not row:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+    finally:
+        _db.close()
 
 
 # ─── Global settings endpoints ────────────────────────────────────────────────
