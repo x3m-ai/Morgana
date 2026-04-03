@@ -40,6 +40,10 @@ class Settings:
     default_beacon_interval: int = int(os.getenv("MORGANA_BEACON_INTERVAL", "5"))
     max_output_bytes: int = int(os.getenv("MORGANA_MAX_OUTPUT", str(100 * 1024)))  # 100KB
 
+    # Agent binaries (served by /download/* endpoints)
+    agent_binary_win: str   = os.getenv("MORGANA_AGENT_WIN",   str(BASE_DIR.parent / "build" / "morgana-agent.exe"))
+    agent_binary_linux: str = os.getenv("MORGANA_AGENT_LINUX", str(BASE_DIR.parent / "build" / "morgana-agent"))
+
     # Logging
     log_file: str = os.getenv("MORGANA_LOG", str(BASE_DIR / "logs" / "server.log"))
 

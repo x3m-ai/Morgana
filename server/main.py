@@ -160,6 +160,10 @@ app.include_router(console_router, prefix="/api/v2/console", tags=["console"])
 from routers.chains import router as chains_router
 app.include_router(chains_router, prefix="/api/v2/chains", tags=["chains"])
 
+# Deploy (one-liner install scripts + binary download)
+from routers.deploy import router as deploy_router
+app.include_router(deploy_router, tags=["deploy"])
+
 # Campaigns (sequence of Chains with parallel support)
 from routers.campaigns import router as campaigns_router
 app.include_router(campaigns_router, prefix="/api/v2/campaigns", tags=["campaigns"])

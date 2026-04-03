@@ -257,10 +257,46 @@ async function purgeStaleAgents() {
 }
 
 function showDeployToken() {
-  const serverUrl = window.location.origin.replace(/:\/\/[^:]+/, "://SERVER_IP");
-  const cmd = `# Windows (run as Administrator)\n.\\morgana-agent.exe install --server ${serverUrl} --token ${API_KEY}\n\n# Linux (run as root)\n./morgana-agent install --server ${serverUrl} --token ${API_KEY}`;
-  document.getElementById("installCommand").textContent = cmd;
+  const origin = window.location.origin;
+  const isHttps = origin.startsWith("https");
+  const token   = typeof API_KEY !== "undefined" ? API_KEY : "MORGANA_ADMIN_KEY";
+
+  // Windows one-liner (PS 5.1 compatible, handles self-signed TLS)
+  const winCmd = isHttps
+    ? `[Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; iex (New-Object Net.WebClient).DownloadString('${origin}/install/windows?token=${token}')`
+    : `iex (irm '${origin}/install/windows?token=${token}')`;
+
+  // Linux one-liner
+  const linCmd = isHttps
+    ? `curl -ksSL '${origin}/install/linux?token=${token}' | sudo bash`
+    : `curl -sSL '${origin}/install/linux?token=${token}' | sudo bash`;
+
+  document.getElementById("deploy-win-cmd").textContent = winCmd;
+  document.getElementById("deploy-lin-cmd").textContent = linCmd;
   document.getElementById("deployModal").classList.remove("hidden");
+}
+
+function copyDeployCmd(elId) {
+  const txt = document.getElementById(elId).textContent;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(txt).then(() => {
+      alert("[OK] Command copied to clipboard.");
+    }).catch(() => _copyFallback(txt));
+  } else {
+    _copyFallback(txt);
+  }
+}
+
+function _copyFallback(txt) {
+  const ta = document.createElement("textarea");
+  ta.value = txt;
+  ta.style.position = "fixed";
+  ta.style.opacity  = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand("copy");
+  document.body.removeChild(ta);
+  alert("[OK] Command copied to clipboard.");
 }
 
 function closeDeployModal() {

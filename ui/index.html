@@ -604,17 +604,43 @@
     </main>
   </div>
 
-  <!-- Deploy token modal -->
+  <!-- Deploy Agent modal -->
   <div id="deployModal" class="modal hidden">
-    <div class="modal-content">
+    <div class="modal-content" style="max-width:640px;width:97%">
       <div class="modal-header">
-        <h3>Deploy Agent</h3>
-        <button class="modal-close" onclick="closeDeployModal()">x</button>
+        <h3>Deploy Agent - One-liner Installer</h3>
+        <button class="modal-close" onclick="closeDeployModal()">&times;</button>
       </div>
       <div class="modal-body">
-        <p>Run this command on the target machine as Administrator/root:</p>
-        <div class="code-block" id="installCommand">Loading...</div>
-        <div class="modal-note">The API key is used as the deploy token for simplicity. In production, generate one-time tokens.</div>
+        <p style="margin-bottom:14px;color:var(--text-muted);font-size:0.85rem">
+          Run the command below on the target machine. It downloads the agent binary from
+          this Morgana server and installs it as a service automatically.
+          No files to copy manually.
+        </p>
+
+        <!-- Windows -->
+        <div style="margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-weight:600;font-size:0.88rem">[WINDOWS] - PowerShell 5.1+ (run as Administrator)</span>
+            <button class="btn btn-secondary" style="padding:2px 10px;font-size:0.78rem" onclick="copyDeployCmd('deploy-win-cmd')">Copy</button>
+          </div>
+          <div class="code-block" id="deploy-win-cmd" style="font-size:0.76rem;word-break:break-all;user-select:all;white-space:pre-wrap"></div>
+        </div>
+
+        <!-- Linux -->
+        <div style="margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-weight:600;font-size:0.88rem">[LINUX] - bash (run as root)</span>
+            <button class="btn btn-secondary" style="padding:2px 10px;font-size:0.78rem" onclick="copyDeployCmd('deploy-lin-cmd')">Copy</button>
+          </div>
+          <div class="code-block" id="deploy-lin-cmd" style="font-size:0.76rem;word-break:break-all;user-select:all;white-space:pre-wrap"></div>
+        </div>
+
+        <div class="modal-note">
+          [INFO] The agent binary is served by this server at <b>/download/morgana-agent.exe</b>.
+          Build the Go agent first if you have not done so:
+          <code style="font-size:0.78rem">cd agent &amp;&amp; go build -o ../build/morgana-agent.exe ./cmd/agent</code>
+        </div>
       </div>
     </div>
   </div>
