@@ -139,7 +139,10 @@ if ($NoWindow) {
     # Background with hidden window, output redirected to log files
     $ErrLogFile = Join-Path $ScriptDir "morgana-server-err.log"
     $startArgs["WindowStyle"]            = "Hidden"
-    $startArgs["RedirectStandardOutput"] = $LogFile
+    # Do NOT redirect stdout to the log file: Python's RotatingFileHandler already
+    # writes to $LogFile directly. Two OS handles on the same file cause Windows
+    # file-lock conflicts that silently kill the process. Redirect stdout to NUL.
+    $startArgs["RedirectStandardOutput"] = "NUL"
     $startArgs["RedirectStandardError"]  = $ErrLogFile
     $startArgs["PassThru"]               = $true
 
