@@ -256,33 +256,38 @@ async function purgeStaleAgents() {
   }
 }
 
-function showDeployToken() {
+async function showDeployToken() {
+  let deployToken;
+  try {
+    const resp = await apiFetch("/api/v2/admin/deploy-token", { method: "POST" });
+    deployToken = resp.deploy_token;
+  } catch (err) {
+    alert("[ERROR] Could not generate deploy token: " + err.message);
+    return;
+  }
+
   const origin = window.location.origin;
   const isHttps = origin.startsWith("https");
-  const token   = typeof API_KEY !== "undefined" ? API_KEY : "MORGANA_ADMIN_KEY";
   const k       = isHttps ? "[Net.ServicePointManager]::ServerCertificateValidationCallback={$true};" : "";
   const curlK   = isHttps ? "-k" : "";
   const d       = "C:\\ProgramData\\Morgana\\agent";
 
-  // Windows: true one-liner — download binary directly then install NT service
-  // No intermediate script. Works on PowerShell 5.1+ (run as Administrator).
+  // Windows: true one-liner -- download binary then install NT service (run as Administrator)
   const winCmd =
     `${k}$d='${d}';New-Item $d -Force -ItemType Directory|Out-Null;` +
     `(New-Object Net.WebClient).DownloadFile('${origin}/download/morgana-agent.exe',"$d\\morgana-agent.exe");` +
-    `&"$d\\morgana-agent.exe" install --server ${origin} --token ${token}`;
+    `&"$d\\morgana-agent.exe" install --server ${origin} --token ${deployToken}`;
 
-  // Linux: true one-liner — download binary directly then install systemd service
-  // Run as root.
+  // Linux: true one-liner -- download binary then install systemd service (run as root)
   const linCmd =
     `curl ${curlK}sSL '${origin}/download/morgana-agent' -o /tmp/morgana-agent` +
     ` && chmod +x /tmp/morgana-agent` +
-    ` && sudo /tmp/morgana-agent install --server ${origin} --token ${token}`;
+    ` && sudo /tmp/morgana-agent install --server ${origin} --token ${deployToken}`;
 
   document.getElementById("deploy-win-cmd").textContent = winCmd;
   document.getElementById("deploy-lin-cmd").textContent = linCmd;
   document.getElementById("deployModal").classList.remove("hidden");
 }
-
 function copyDeployCmd(elId) {
   const txt = document.getElementById(elId).textContent;
   if (navigator.clipboard) {

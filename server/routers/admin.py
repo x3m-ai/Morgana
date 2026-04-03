@@ -109,6 +109,20 @@ def reload_atomics(key: Optional[str] = Header(None, alias="KEY")):
     return {"status": "ok", "stats": stats}
 
 
+@router.post("/deploy-token")
+def create_deploy_token_endpoint(key: Optional[str] = Header(None, alias="KEY")):
+    """Generate a one-time deploy token for agent installation.
+
+    The token is valid for a single agent registration and expires after use.
+    Returns the token in the response — pass it as --token to the agent installer.
+    """
+    _require_api_key(key)
+    from routers.agent.register import create_deploy_token
+    token = create_deploy_token()
+    log.info("[ADMIN] Deploy token generated")
+    return {"deploy_token": token}
+
+
 @router.get("/atomics/status")
 def atomic_status(key: Optional[str] = Header(None, alias="KEY")):
     """Return stats from the last atomic import run."""
