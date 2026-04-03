@@ -289,6 +289,7 @@
             <button class="btn btn-primary" onclick="newChain()">+ New Chain</button>
             <button class="btn btn-secondary" onclick="importChainJSON()">Import JSON</button>
             <button class="btn btn-secondary" onclick="loadChains()">Refresh</button>
+            <button class="btn btn-danger"    onclick="deleteAllChains()">Delete All</button>
           </div>
 
           <div class="card" style="margin-bottom:16px">
@@ -310,8 +311,9 @@
             </div>
           </div>
 
-          <div class="page-header" style="margin-top:24px">
-            <h2 style="font-size:15px;font-weight:600">Recent Executions</h2>
+          <div class="page-header" style="margin-top:24px;display:flex;align-items:center;gap:10px">
+            <h2 style="font-size:15px;font-weight:600;flex:1">Recent Executions</h2>
+            <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick="clearChainExecutions()">Clear Log</button>
           </div>
           <div class="card">
             <div class="card-body" style="padding:0">
@@ -406,8 +408,9 @@
             </div>
           </div>
 
-          <div class="page-header" style="margin-top:24px">
-            <h2 style="font-size:15px;font-weight:600">Recent Executions</h2>
+          <div class="page-header" style="margin-top:24px;display:flex;align-items:center;gap:10px">
+            <h2 style="font-size:15px;font-weight:600;flex:1">Recent Executions</h2>
+            <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick="clearCampaignExecutions()">Clear Log</button>
           </div>
           <div class="card">
             <div class="card-body" style="padding:0">
@@ -849,6 +852,24 @@
     <button onclick="campMenuAddChain()">Chain Node</button>
     <button onclick="campMenuAddParallel()">Parallel</button>
     <button onclick="closeCampAddMenu()" style="color:var(--text-muted);font-size:11px">Cancel</button>
+  </div>
+
+  <!-- Quick Execute modal (shared by Scripts / Chains / Campaigns list) -->
+  <div id="quickExecModal" class="modal hidden">
+    <div class="modal-content" style="max-width:420px;width:95%">
+      <div class="modal-header">
+        <h3 id="qe-title">Execute</h3>
+        <button class="modal-close" onclick="closeQuickExecModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--text-secondary)">Target Agent</label>
+        <select id="qe-agent-sel" style="width:100%;margin-bottom:20px;background:var(--bg-input,#3a3a3a);color:var(--text-primary,#fff);border:1px solid var(--border-color,#555);border-radius:4px;padding:6px 8px;font-size:13px"></select>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-secondary" onclick="closeQuickExecModal()">Cancel</button>
+          <button class="btn btn-primary" id="qe-run-btn" onclick="_quickExecRun()">Execute</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

@@ -235,6 +235,30 @@ def update_chain(chain_id: str, body: ChainUpdate, db: Session = Depends(get_db)
     return _chain_to_dict(c)
 
 
+@router.delete("")
+def delete_all_chains(db: Session = Depends(get_db)):
+    """Delete all chains. Nullify chain_id on related executions."""
+    chains = db.query(Chain).all()
+    ids = [c.id for c in chains]
+    if ids:
+        db.query(ChainExecution).filter(ChainExecution.chain_id.in_(ids)).update(
+            {"chain_id": None}, synchronize_session=False
+        )
+        db.query(Chain).delete(synchronize_session=False)
+        db.commit()
+    log.info("[SUCCESS] All chains deleted (%d)", len(ids))
+    return {"deleted": len(ids)}
+
+
+@router.delete("/executions")
+def clear_chain_executions(db: Session = Depends(get_db)):
+    """Delete all chain execution records."""
+    count = db.query(ChainExecution).delete(synchronize_session=False)
+    db.commit()
+    log.info("[SUCCESS] Chain executions cleared: %d", count)
+    return {"cleared": count}
+
+
 @router.delete("/{chain_id}")
 def delete_chain(chain_id: str, db: Session = Depends(get_db)):
     c = db.query(Chain).filter(Chain.id == chain_id).first()

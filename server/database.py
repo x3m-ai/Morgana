@@ -4,15 +4,19 @@ Morgana Server - Database setup (SQLAlchemy + SQLite)
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool
 from config import settings
 
 DATABASE_URL = f"sqlite:///{settings.db_path}"
 
+# NullPool: each SessionLocal() opens its own connection and closes it on release.
+# This is required for parallel threads (e.g. campaign parallel branch execution)
+# because StaticPool shares a single connection across all threads, causing
+# silent commit conflicts when multiple threads write concurrently.
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
+    connect_args={"check_same_thread": False, "timeout": 30},
+    poolclass=NullPool,
 )
 
 
@@ -23,6 +27,9 @@ def set_sqlite_pragmas(dbapi_conn, _):
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.execute("PRAGMA synchronous=NORMAL")
+    # busy_timeout: wait up to 10s for a write lock instead of failing immediately.
+    # Critical for parallel branch execution where multiple threads write concurrently.
+    cursor.execute("PRAGMA busy_timeout=10000")
     cursor.close()
 
 

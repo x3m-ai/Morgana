@@ -14,6 +14,7 @@ let refreshTimer = null;
 
 // Chain builder state
 let _allChains = [];
+let _allCampaigns = [];
 let _editingChain = { id: null, name: "", description: "", nodes: [] };
 let _chainAddMenuCtx = null; // { branch, index, ifElseId }
 let _chainPickerCtx  = null; // { type: "insert"|"replace", nodeId, branch, ifElseId, index }
@@ -302,6 +303,7 @@ function renderScripts(scripts) {
       <td id="tags-script-${escHtml(s.id)}" class="tags-container" style="min-width:80px"></td>
       <td style="white-space:nowrap">
         <button class="btn-open" onclick="openScriptModal('${escHtml(s.id)}')">Open</button>
+        <button class="btn btn-primary btn-sm" style="margin-left:4px" onclick="quickExecuteScript('${escHtml(s.id)}')">Execute</button>
         <button class="btn btn-secondary btn-sm" style="margin-left:4px" onclick="duplicateScript('${escHtml(s.id)}')">Duplicate</button>
         <button class="btn btn-danger btn-sm" style="margin-left:4px" onclick="deleteScript('${escHtml(s.id)}')">Delete</button>
       </td>
@@ -1245,6 +1247,7 @@ function _renderChainList() {
       <td style="font-size:12px;color:var(--text-muted)">${escHtml(updated)}</td>
       <td style="white-space:nowrap">
         <button class="btn-open" onclick="editChain('${escHtml(c.id)}')">Open</button>
+        <button class="btn btn-primary btn-sm" style="margin-left:4px" onclick="quickExecuteChain('${escHtml(c.id)}')">Execute</button>
         <button class="btn btn-secondary btn-sm" style="margin-left:4px" onclick="duplicateChain('${escHtml(c.id)}')">Duplicate</button>
         <button class="btn btn-danger btn-sm" style="margin-left:4px" onclick="deleteChain('${escHtml(c.id)}')">Delete</button>
       </td>
@@ -1375,6 +1378,28 @@ async function deleteChain(id) {
     _renderChainList();
   } catch (err) {
     alert("Delete failed: " + err.message);
+  }
+}
+
+async function deleteAllChains() {
+  if (!confirm("Delete ALL chains? This cannot be undone.")) return;
+  try {
+    await apiFetch("/api/v2/chains", { method: "DELETE" });
+    _allChains = [];
+    _renderChainList();
+    loadChainExecutionsList();
+  } catch (err) {
+    alert("Delete failed: " + err.message);
+  }
+}
+
+async function clearChainExecutions() {
+  if (!confirm("Clear the entire chain execution log? This cannot be undone.")) return;
+  try {
+    await apiFetch("/api/v2/chains/executions", { method: "DELETE" });
+    loadChainExecutionsList();
+  } catch (err) {
+    alert("Clear failed: " + err.message);
   }
 }
 
@@ -1888,6 +1913,7 @@ async function loadCampaigns() {
 }
 
 function _renderCampaignList(campaigns) {
+  _allCampaigns = campaigns;
   const tbody = document.getElementById("campaignListBody");
   if (!campaigns.length) {
     tbody.innerHTML = `<tr><td colspan="5" class="empty-row">No campaigns yet. Click "+ New Campaign" to build one.</td></tr>`;
@@ -1902,6 +1928,7 @@ function _renderCampaignList(campaigns) {
       <td style="font-size:12px;color:var(--text-muted)">${escHtml(updated)}</td>
       <td style="white-space:nowrap">
         <button class="btn-open" onclick="editCampaign('${escHtml(c.id)}')">Open</button>
+        <button class="btn btn-primary btn-sm" style="margin-left:4px" onclick="quickExecuteCampaign('${escHtml(c.id)}')">Execute</button>
         <button class="btn btn-secondary btn-sm" style="margin-left:4px" onclick="duplicateCampaign('${escHtml(c.id)}')">Duplicate</button>
         <button class="btn btn-danger btn-sm" style="margin-left:4px" onclick="deleteCampaign('${escHtml(c.id)}')">Delete</button>
       </td>
@@ -2074,6 +2101,16 @@ async function deleteCampaign(id) {
   }
 }
 
+async function clearCampaignExecutions() {
+  if (!confirm("Clear the entire campaign execution log? This cannot be undone.")) return;
+  try {
+    await apiFetch("/api/v2/campaigns/executions", { method: "DELETE" });
+    loadCampaignExecutionsList();
+  } catch (err) {
+    alert("Clear failed: " + err.message);
+  }
+}
+
 async function duplicateCampaign(id) {
   try {
     const [full, allCampaigns] = await Promise.all([
@@ -2121,6 +2158,90 @@ async function executeCampaignFromEditor() {
     alert("Execute failed: " + err.message);
   }
 }
+
+// ── Quick Execute from list (Scripts / Chains / Campaigns) ──────────────────
+
+let _qeType = null;  // "script" | "chain" | "campaign"
+let _qeId   = null;
+
+async function _showQuickExecModal(type, id) {
+  _qeType = type;
+  _qeId   = id;
+  const entry = type === "script"
+    ? allScripts.find((s) => String(s.id) === String(id))
+    : type === "chain"
+      ? _allChains.find((x) => x.id === id)
+      : _allCampaigns.find((x) => x.id === id);
+  document.getElementById("qe-title").textContent = "Execute: " + ((entry || {}).name || id);
+  const sel = document.getElementById("qe-agent-sel");
+  sel.innerHTML = '<option value="">Loading agents...</option>';
+  const btn = document.getElementById("qe-run-btn");
+  btn.disabled    = false;
+  btn.textContent = "Execute";
+  document.getElementById("quickExecModal").classList.remove("hidden");
+  try {
+    const agents = await apiFetch("/api/v2/agents");
+    const list = agents.agents || agents || [];
+    if (!list.length) {
+      sel.innerHTML = '<option value="">No agents registered</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">Select agent...</option>' +
+      list.map((a) => {
+        const host  = a.host || a.hostname || "";
+        const label = a.alias ? a.alias + "  (" + host + ")  [" + a.paw + "]" : host + "  [" + a.paw + "]";
+        return '<option value="' + escHtml(a.paw) + '">' + escHtml(label) + '</option>';
+      }).join("");
+  } catch (err) {
+    sel.innerHTML = '<option value="">Error loading agents</option>';
+  }
+}
+
+function closeQuickExecModal() {
+  document.getElementById("quickExecModal").classList.add("hidden");
+  _qeType = null;
+  _qeId   = null;
+}
+
+async function _quickExecRun() {
+  const paw = document.getElementById("qe-agent-sel").value;
+  if (!paw) { alert("Select an agent first."); return; }
+  const btn = document.getElementById("qe-run-btn");
+  btn.disabled    = true;
+  btn.textContent = "Running...";
+  try {
+    let endpoint, body;
+    if (_qeType === "script") {
+      endpoint = "/api/v2/scripts/" + _qeId + "/execute";
+      body = { paw };
+    } else if (_qeType === "chain") {
+      endpoint = "/api/v2/chains/" + _qeId + "/execute";
+      body = { agent_paw: paw };
+    } else {
+      endpoint = "/api/v2/campaigns/" + _qeId + "/execute";
+      body = { agent_paw: paw };
+    }
+    const r = await apiFetch(endpoint, { method: "POST", body: JSON.stringify(body) });
+    closeQuickExecModal();
+    if (_qeType === "script") {
+      alert("[OK] Job queued.\nJob ID: " + (r.job_id ? r.job_id.slice(0, 8) + "..." : "-"));
+    } else if (_qeType === "chain") {
+      alert("Chain execution started.\nExecution ID: " + r.execution_id + "\n\nCheck the Executions list on the Chains page.");
+      loadChainExecutionsList();
+    } else {
+      alert("Campaign execution started.\nExecution ID: " + r.execution_id);
+    }
+  } catch (err) {
+    alert("[ERROR] " + err.message);
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = "Execute";
+  }
+}
+
+function quickExecuteScript(id)   { _showQuickExecModal("script",   id); }
+function quickExecuteChain(id)    { _showQuickExecModal("chain",    id); }
+function quickExecuteCampaign(id) { _showQuickExecModal("campaign", id); }
 
 function exportCampaignJSON() {
   const data = {

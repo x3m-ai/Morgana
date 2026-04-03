@@ -163,6 +163,15 @@ def update_campaign(campaign_id: str, body: CampaignUpdate, db: Session = Depend
     return _campaign_to_dict(c)
 
 
+@router.delete("/executions")
+def clear_campaign_executions(db: Session = Depends(get_db), _: None = Depends(_require_api_key)):
+    """Delete all campaign execution records."""
+    count = db.query(CampaignExecution).delete(synchronize_session=False)
+    db.commit()
+    log.info("[CAMPAIGN] Executions cleared: %d", count)
+    return {"cleared": count}
+
+
 @router.delete("/{campaign_id}")
 def delete_campaign(campaign_id: str, db: Session = Depends(get_db), _: None = Depends(_require_api_key)):
     c = db.query(Campaign).filter(Campaign.id == campaign_id).first()
@@ -312,9 +321,13 @@ def _run_chain_step(node: dict, agent_paw: str) -> dict:
 
         agent = db.query(Agent).filter(Agent.paw == agent_paw).first()
         chain_actual_name = chain.name
-        chain_exec_id = str(uuid.uuid4())
+        # Generate UUID here but do NOT assign to chain_exec_id yet.
+        # chain_exec_id is set only AFTER db.commit() succeeds so that the
+        # guard below correctly detects a failed commit (e.g. SQLite lock
+        # conflict during parallel branch execution).
+        new_exec_id = str(uuid.uuid4())
         ce = ChainExecution(
-            id=chain_exec_id,
+            id=new_exec_id,
             chain_id=chain.id,
             chain_name=chain.name,
             agent_id=agent.id if agent else None,
@@ -326,13 +339,15 @@ def _run_chain_step(node: dict, agent_paw: str) -> dict:
         )
         db.add(ce)
         db.commit()
+        # Only mark as successfully created after commit completes.
+        chain_exec_id = new_exec_id
     finally:
         db.close()
 
     if not chain_exec_id:
         return {
             "node_id": node_id, "type": "chain", "chain_name": chain_actual_name,
-            "state": "failed", "error": "Setup failed", "steps": [],
+            "state": "failed", "error": "Failed to create ChainExecution record", "steps": [],
         }
 
     # Run chain synchronously (blocking — we are already in a background thread)
