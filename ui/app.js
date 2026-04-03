@@ -2214,7 +2214,7 @@ async function _quickExecRun() {
     if (_qeType === "script") {
       endpoint = "/api/v2/scripts/" + _qeId + "/execute";
       body = { paw };
-    } else if (_qeType === "chain") {
+    } else if (execType === "chain") {
       endpoint = "/api/v2/chains/" + _qeId + "/execute";
       body = { agent_paw: paw };
     } else {
@@ -2222,8 +2222,9 @@ async function _quickExecRun() {
       body = { agent_paw: paw };
     }
     const r = await apiFetch(endpoint, { method: "POST", body: JSON.stringify(body) });
+    const execType = _qeType;
     closeQuickExecModal();
-    if (_qeType === "script") {
+    if (execType === "script") {
       alert("[OK] Job queued.\nJob ID: " + (r.job_id ? r.job_id.slice(0, 8) + "..." : "-"));
     } else if (_qeType === "chain") {
       alert("Chain execution started.\nExecution ID: " + r.execution_id + "\n\nCheck the Executions list on the Chains page.");
