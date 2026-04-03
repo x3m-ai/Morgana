@@ -298,6 +298,7 @@ function renderScripts(scripts) {
       <td id="tags-script-${escHtml(s.id)}" class="tags-container" style="min-width:80px"></td>
       <td style="white-space:nowrap">
         <button class="btn-open" onclick="openScriptModal('${escHtml(s.id)}')">Open</button>
+        <button class="btn btn-secondary btn-sm" style="margin-left:4px" onclick="duplicateScript('${escHtml(s.id)}')">Duplicate</button>
         <button class="btn btn-danger btn-sm" style="margin-left:4px" onclick="deleteScript('${escHtml(s.id)}')">Delete</button>
       </td>
     </tr>
@@ -345,6 +346,44 @@ async function deleteScript(scriptId) {
     filterScripts();
   } catch (err) {
     alert("Delete failed: " + err.message);
+  }
+}
+
+// Returns the next available " - Copy N" name given a base name and a list of existing names
+function _nextCopyName(name, existingNames) {
+  const base = name.replace(/ - Copy( \d+)?$/, "");
+  const taken = new Set(existingNames);
+  let candidate = base + " - Copy";
+  if (!taken.has(candidate)) return candidate;
+  for (let i = 2; i < 200; i++) {
+    candidate = base + " - Copy " + i;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return base + " - Copy " + Date.now();
+}
+
+async function duplicateScript(id) {
+  const s = allScripts.find((x) => String(x.id) === String(id));
+  if (!s) { alert("Script not found."); return; }
+  const newName = _nextCopyName(s.name, allScripts.map((x) => x.name));
+  try {
+    await apiFetch("/api/v2/scripts", {
+      method: "POST",
+      body: JSON.stringify({
+        name: newName,
+        tcode: s.tcode,
+        tactic: s.tactic,
+        description: s.description,
+        command: s.command,
+        cleanup_command: s.cleanup_command,
+        executor: s.executor,
+        platform: s.platform,
+      }),
+    });
+    allScripts = [];
+    await loadScripts();
+  } catch (err) {
+    alert("Duplicate failed: " + err.message);
   }
 }
 
@@ -1193,6 +1232,7 @@ function _renderChainList() {
       <td style="font-size:12px;color:var(--text-muted)">${escHtml(updated)}</td>
       <td style="white-space:nowrap">
         <button class="btn-open" onclick="editChain('${escHtml(c.id)}')">Open</button>
+        <button class="btn btn-secondary btn-sm" style="margin-left:4px" onclick="duplicateChain('${escHtml(c.id)}')">Duplicate</button>
         <button class="btn btn-danger btn-sm" style="margin-left:4px" onclick="deleteChain('${escHtml(c.id)}')">Delete</button>
       </td>
     </tr>`;
@@ -1319,6 +1359,26 @@ async function deleteChain(id) {
     _renderChainList();
   } catch (err) {
     alert("Delete failed: " + err.message);
+  }
+}
+
+async function duplicateChain(id) {
+  try {
+    const full = await apiFetch(`/api/v2/chains/${id}`);
+    const newName = _nextCopyName(full.name, _allChains.map((x) => x.name));
+    await apiFetch("/api/v2/chains", {
+      method: "POST",
+      body: JSON.stringify({
+        name: newName,
+        description: full.description || "",
+        agent_paw: full.agent_paw || null,
+        flow: full.flow || { nodes: [] },
+      }),
+    });
+    _allChains = await apiFetch("/api/v2/chains");
+    _renderChainList();
+  } catch (err) {
+    alert("Duplicate failed: " + err.message);
   }
 }
 
@@ -1818,6 +1878,7 @@ function _renderCampaignList(campaigns) {
       <td style="font-size:12px;color:var(--text-muted)">${escHtml(updated)}</td>
       <td style="white-space:nowrap">
         <button class="btn-open" onclick="editCampaign('${escHtml(c.id)}')">Open</button>
+        <button class="btn btn-secondary btn-sm" style="margin-left:4px" onclick="duplicateCampaign('${escHtml(c.id)}')">Duplicate</button>
         <button class="btn btn-danger btn-sm" style="margin-left:4px" onclick="deleteCampaign('${escHtml(c.id)}')">Delete</button>
       </td>
     </tr>`;
@@ -1981,6 +2042,28 @@ async function deleteCampaign(id) {
     loadCampaigns();
   } catch (err) {
     alert("Delete failed: " + err.message);
+  }
+}
+
+async function duplicateCampaign(id) {
+  try {
+    const [full, allCampaigns] = await Promise.all([
+      apiFetch(`/api/v2/campaigns/${id}`),
+      apiFetch("/api/v2/campaigns"),
+    ]);
+    const newName = _nextCopyName(full.name, allCampaigns.map((x) => x.name));
+    await apiFetch("/api/v2/campaigns", {
+      method: "POST",
+      body: JSON.stringify({
+        name: newName,
+        description: full.description || "",
+        agent_paw: full.agent_paw || null,
+        flow_json: full.flow_json || '{"nodes":[]}',
+      }),
+    });
+    loadCampaigns();
+  } catch (err) {
+    alert("Duplicate failed: " + err.message);
   }
 }
 
