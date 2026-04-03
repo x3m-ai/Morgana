@@ -17,6 +17,10 @@ let _allChains = [];
 let _editingChain = { id: null, name: "", description: "", nodes: [] };
 let _chainAddMenuCtx = null; // { branch, index, ifElseId }
 let _chainPickerCtx  = null; // { type: "insert"|"replace", nodeId, branch, ifElseId, index }
+// Unsaved-changes flags for save-before-execute
+let _scriptDirty   = false;
+let _chainDirty    = false;
+let _campaignDirty = false;
 
 // Campaign builder state
 let _editingCampaign = { id: null, name: "New Campaign", description: "", agent_paw: "", nodes: [] };
@@ -672,6 +676,7 @@ function openNewScriptModal() {
   document.getElementById("sm-tags-container").innerHTML = "<span class='admin-hint'>Save script first to assign tags.</span>";
   _loadAgentOptions();
   document.getElementById("sm-execute-result").style.display = "none";
+  _scriptDirty = true;
   document.getElementById("scriptModal").classList.remove("hidden");
 }
 
@@ -703,6 +708,7 @@ function openScriptModal(scriptId) {
   document.getElementById("sm-execute-result").style.display = "none";
   _loadAgentOptions();
   loadEntityTagsInModal("script", s.id, "sm-tags-container");
+  _scriptDirty = false;
   document.getElementById("scriptModal").classList.remove("hidden");
 }
 
@@ -740,6 +746,7 @@ async function saveScriptFromModal() {
     filterScripts();
     document.getElementById("scriptModalTitle").textContent = escHtml(payload.name);
     document.getElementById("sm-delete-btn").style.display = "inline-flex";
+    _scriptDirty = false;
     alert("Script saved.");
   } catch (err) {
     alert("Save failed: " + err.message);
@@ -794,6 +801,12 @@ async function executeScriptFromModal() {
 
   try {
     let result;
+    if (_currentScriptId && _scriptDirty) {
+      // Saved script with unsaved changes - prompt to save first
+      if (!confirm("Script has unsaved changes. Save now before executing?")) return;
+      await saveScriptFromModal();
+      if (!_currentScriptId) return;
+    }
     if (_currentScriptId) {
       // Saved script - use its stored command/cleanup
       result = await apiFetch(`/api/v2/scripts/${_currentScriptId}/execute`, {
@@ -1269,6 +1282,7 @@ async function loadChainExecutionsList() {
 
 function newChain() {
   _editingChain = { id: null, name: "New Chain", description: "", agent_paw: "", nodes: [] };
+  _chainDirty = true;
   _openChainEditor();
 }
 
@@ -1282,6 +1296,7 @@ async function editChain(id) {
       agent_paw:   c.agent_paw || "",
       nodes:       (c.flow && c.flow.nodes) ? c.flow.nodes : [],
     };
+    _chainDirty = false;
     _openChainEditor();
   } catch (err) {
     alert("Could not load chain: " + err.message);
@@ -1342,6 +1357,7 @@ async function saveChain() {
     document.getElementById("chain-editor-title").textContent = saved.name;
     const execBtn = document.getElementById("chain-exec-btn");
     if (execBtn) execBtn.disabled = false;
+    _chainDirty = false;
     alert("Chain saved.");
     loadChains();
     _openChainEditor(); // keep editor open and re-render
@@ -1417,6 +1433,11 @@ function importChainJSON() {
 // ── Execute ───────────────────────────────────────────────────────────────────
 
 async function executeChainFromEditor() {
+  if (_chainDirty) {
+    if (!confirm("Chain has unsaved changes. Save now before executing?")) return;
+    await saveChain();
+    if (!_editingChain.id) return;
+  }
   if (!_editingChain.id) { alert("Save the chain first."); return; }
   const paw = (document.getElementById("chain-agent-sel").value || "").trim();
   if (!paw) { alert("Select a Default Agent before executing."); return; }
@@ -1634,6 +1655,7 @@ function chainMenuAddIfElse() {
     else_nodes: [],
   };
   _insertNodeAt(_editingChain.nodes, node, branch, index, ifElseId);
+  _chainDirty = true;
   renderChainFlow();
 }
 
@@ -1726,6 +1748,7 @@ function chainPickScript(scriptId) {
     };
     _insertNodeAt(_editingChain.nodes, node, branch, index, ifElseId);
   }
+  _chainDirty = true;
   renderChainFlow();
 }
 
@@ -1741,6 +1764,7 @@ function removeChainNode(nodeId, branch, ifElseIdStr) {
   if (!confirm("WARNING: This will remove the selected node AND all nodes that follow it in this branch.\nThis action cannot be undone.\n\nContinue?")) return;
   const ifElseId = (ifElseIdStr === "null") ? null : ifElseIdStr;
   _walkAndRemove(_editingChain.nodes, nodeId, branch, ifElseId);
+  _chainDirty = true;
   renderChainFlow();
 }
 
@@ -1962,6 +1986,7 @@ function _buildCampExecLogHTML(steps) {
 
 function newCampaign() {
   _editingCampaign = { id: null, name: "New Campaign", description: "", agent_paw: "", nodes: [] };
+  _campaignDirty = true;
   _openCampaignEditor();
 }
 
@@ -1975,6 +2000,7 @@ async function editCampaign(id) {
       agent_paw:   c.agent_paw || "",
       nodes:       (c.flow && c.flow.nodes) ? c.flow.nodes : [],
     };
+    _campaignDirty = false;
     _openCampaignEditor();
   } catch (err) {
     alert("Could not load campaign: " + err.message);
@@ -2030,6 +2056,7 @@ async function saveCampaign() {
     _editingCampaign.id = saved.id;
     document.getElementById("campaign-editor-title").textContent = saved.name;
     document.getElementById("camp-exec-btn").disabled = false;
+    _campaignDirty = false;
   } catch (err) {
     alert("Save failed: " + err.message);
   }
@@ -2072,6 +2099,11 @@ function closeCampaignEditor() {
 }
 
 async function executeCampaignFromEditor() {
+  if (_campaignDirty) {
+    if (!confirm("Campaign has unsaved changes. Save now before executing?")) return;
+    await saveCampaign();
+    if (!_editingCampaign.id) return;
+  }
   if (!_editingCampaign.id) { alert("Save the campaign first."); return; }
   const agentPaw = document.getElementById("camp-agent-sel").value;
   if (!agentPaw) { alert("Select an agent before executing."); return; }
@@ -2246,6 +2278,7 @@ function campMenuAddParallel() {
     branches: [[], []],
   };
   _campInsertNodeAt(_editingCampaign.nodes, node, ctx.branch, ctx.index, ctx.parallelId);
+  _campaignDirty = true;
   renderCampaignFlow();
 }
 
@@ -2253,6 +2286,7 @@ function addCampParallelBranch(parallelNodeId) {
   _campWalkAndModifyParallel(_editingCampaign.nodes, parallelNodeId, (node) => {
     node.branches.push([]);
   });
+  _campaignDirty = true;
   renderCampaignFlow();
 }
 
@@ -2261,6 +2295,7 @@ function removeCampParallelBranch(parallelNodeId, branchIdx) {
   _campWalkAndModifyParallel(_editingCampaign.nodes, parallelNodeId, (node) => {
     node.branches.splice(branchIdx, 1);
   });
+  _campaignDirty = true;
   renderCampaignFlow();
 }
 
@@ -2335,6 +2370,7 @@ function campPickChain(chainId) {
   } else {
     _campInsertNodeAt(_editingCampaign.nodes, node, ctx.branch, ctx.index, ctx.parallelId);
   }
+  _campaignDirty = true;
   renderCampaignFlow();
 }
 
@@ -2350,6 +2386,7 @@ function removeCampNode(nodeId, branch, parallelIdStr) {
   if (!confirm("Remove this node and all nodes that follow it in this branch?")) return;
   const parallelId = (parallelIdStr === "null") ? null : parallelIdStr;
   _campWalkAndRemove(_editingCampaign.nodes, nodeId, branch, parallelId);
+  _campaignDirty = true;
   renderCampaignFlow();
 }
 
@@ -2434,4 +2471,12 @@ function _campWalkAndModifyParallel(nodes, parallelNodeId, fn) {
   apiFetch("/api/v2/scripts?limit=1&count_only=true")
     .then((data) => setVal("stat-scripts-total", data.total || 0))
     .catch(() => {});
+
+  // Unsaved-changes tracking: mark dirty on any input/change in each editor
+  const smModal = document.getElementById("scriptModal");
+  if (smModal) smModal.addEventListener("input", () => { _scriptDirty = true; });
+  const chainEditor = document.getElementById("chain-editor-view");
+  if (chainEditor) chainEditor.addEventListener("input", () => { _chainDirty = true; });
+  const campEditor = document.getElementById("campaign-editor-view");
+  if (campEditor) campEditor.addEventListener("input", () => { _campaignDirty = true; });
 })();
