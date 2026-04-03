@@ -27,7 +27,7 @@ $ServerDir   = Join-Path $ScriptDir "server"
 $VenvPython  = Join-Path $ServerDir ".venv\Scripts\python.exe"
 $SystemPython = "python"
 $PidFile     = Join-Path $ScriptDir "morgana.pid"
-$LogFile     = Join-Path $ScriptDir "morgana-server.log"
+$LogFile     = Join-Path $ServerDir "logs" "server.log"
 $MainScript  = Join-Path $ServerDir "main.py"
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -137,14 +137,12 @@ $startArgs = @{
 
 if ($NoWindow) {
     # Background with hidden window, output redirected to log files
-    $ErrLogFile = Join-Path $ScriptDir "morgana-server-err.log"
-    $startArgs["WindowStyle"]            = "Hidden"
-    # Do NOT redirect stdout to the log file: Python's RotatingFileHandler already
-    # writes to $LogFile directly. Two OS handles on the same file cause Windows
-    # file-lock conflicts that silently kill the process. Redirect stdout to NUL.
-    $startArgs["RedirectStandardOutput"] = "NUL"
-    $startArgs["RedirectStandardError"]  = $ErrLogFile
-    $startArgs["PassThru"]               = $true
+    $startArgs["WindowStyle"] = "Hidden"
+    $startArgs["PassThru"]     = $true
+    # Note: do NOT add -RedirectStandardOutput or -RedirectStandardError here.
+    # Python's RotatingFileHandler writes to $LogFile directly and exclusively.
+    # Any OS-level stdout redirect on the same file causes Windows file-lock
+    # conflicts that silently kill the process.
 
     $proc = Start-Process @startArgs
     $proc.Id | Set-Content $PidFile -Encoding ASCII
