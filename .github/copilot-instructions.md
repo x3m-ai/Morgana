@@ -10,6 +10,7 @@
 1. **NEVER commit or push** — Do NOT run `git commit` or `git push` unless the user explicitly asks for it. No exceptions.
 2. **NO EMOJI in code** — No emoji in `.py`, `.go`, `.js`, `.html` files. Use `[START]`, `[SUCCESS]`, `[ERROR]` tags. Reason: UTF-8 corruption breaks automation.
 3. **Merlino integration layer is FROZEN** — The Merlino side of the Caldera/Morgana integration must not change. See Merlino copilot-instructions for details.
+4. **commit_history folder is MANDATORY** — Every time the user asks to commit and push, you MUST create a Markdown file in `commit_history/` BEFORE committing. The filename format is `YYYYMMDD_<short-hash>_<slug>.md` where `<short-hash>` is the hash of the most recent existing commit (7 chars) and `<slug>` is a short kebab-case description. The file must contain: date, commit hash(es), full description of every change made (files modified, root causes, fixes, test results). Include the commit_history file in the same commit. No exceptions.
 
 ---
 
