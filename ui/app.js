@@ -260,16 +260,23 @@ function showDeployToken() {
   const origin = window.location.origin;
   const isHttps = origin.startsWith("https");
   const token   = typeof API_KEY !== "undefined" ? API_KEY : "MORGANA_ADMIN_KEY";
+  const k       = isHttps ? "[Net.ServicePointManager]::ServerCertificateValidationCallback={$true};" : "";
+  const curlK   = isHttps ? "-k" : "";
+  const d       = "C:\\ProgramData\\Morgana\\agent";
 
-  // Windows one-liner (PS 5.1 compatible, handles self-signed TLS)
-  const winCmd = isHttps
-    ? `[Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; iex (New-Object Net.WebClient).DownloadString('${origin}/install/windows?token=${token}')`
-    : `iex (irm '${origin}/install/windows?token=${token}')`;
+  // Windows: true one-liner — download binary directly then install NT service
+  // No intermediate script. Works on PowerShell 5.1+ (run as Administrator).
+  const winCmd =
+    `${k}$d='${d}';New-Item $d -Force -ItemType Directory|Out-Null;` +
+    `(New-Object Net.WebClient).DownloadFile('${origin}/download/morgana-agent.exe',"$d\\morgana-agent.exe");` +
+    `&"$d\\morgana-agent.exe" install --server ${origin} --token ${token}`;
 
-  // Linux one-liner
-  const linCmd = isHttps
-    ? `curl -ksSL '${origin}/install/linux?token=${token}' | sudo bash`
-    : `curl -sSL '${origin}/install/linux?token=${token}' | sudo bash`;
+  // Linux: true one-liner — download binary directly then install systemd service
+  // Run as root.
+  const linCmd =
+    `curl ${curlK}sSL '${origin}/download/morgana-agent' -o /tmp/morgana-agent` +
+    ` && chmod +x /tmp/morgana-agent` +
+    ` && sudo /tmp/morgana-agent install --server ${origin} --token ${token}`;
 
   document.getElementById("deploy-win-cmd").textContent = winCmd;
   document.getElementById("deploy-lin-cmd").textContent = linCmd;

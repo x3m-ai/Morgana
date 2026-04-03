@@ -613,9 +613,9 @@
       </div>
       <div class="modal-body">
         <p style="margin-bottom:14px;color:var(--text-muted);font-size:0.85rem">
-          Run the command below on the target machine. It downloads the agent binary from
-          this Morgana server and installs it as a service automatically.
-          No files to copy manually.
+          Paste the command below on the target machine (<b>one line</b>).
+          It downloads the agent binary directly from this server and installs the service.
+          No files to transfer manually.
         </p>
 
         <!-- Windows -->
@@ -637,9 +637,9 @@
         </div>
 
         <div class="modal-note">
-          [INFO] The agent binary is served by this server at <b>/download/morgana-agent.exe</b>.
-          Build the Go agent first if you have not done so:
-          <code style="font-size:0.78rem">cd agent &amp;&amp; go build -o ../build/morgana-agent.exe ./cmd/agent</code>
+          [INFO] The agent binary must be compiled before deployment.
+          <code style="font-size:0.78rem">cd agent &amp;&amp; go build -o ../build/morgana-agent.exe ./cmd/agent/main.go</code>
+          &nbsp;|&nbsp; Linux: <code style="font-size:0.78rem">GOOS=linux go build -o ../build/morgana-agent ./cmd/agent/main.go</code>
         </div>
       </div>
     </div>
