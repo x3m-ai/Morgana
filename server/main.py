@@ -67,7 +67,12 @@ def _setup_logging() -> None:
     root = logging.getLogger()
     root.setLevel(level)
     root.handlers.clear()
-    root.addHandler(stream_handler)
+    # Only add the stream handler when running in an interactive terminal.
+    # When launched via Start-Process -RedirectStandardOutput, stdout is already
+    # a file handle pointing at the log file. Adding a second RotatingFileHandler
+    # on the same path causes Windows file-lock conflicts that silently kill the process.
+    if sys.stdout.isatty():
+        root.addHandler(stream_handler)
     root.addHandler(file_handler)
 
     # Quieten noisy third-party loggers
