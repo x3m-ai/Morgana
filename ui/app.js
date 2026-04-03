@@ -2731,7 +2731,9 @@ function _campWalkAndModifyParallel(nodes, parallelNodeId, fn) {
   setInterval(checkHealth, 30000);
   setInterval(() => {
     const activePage = document.querySelector(".page.active");
-    if (activePage && activePage.id === "page-dashboard") refreshDashboard();
+    if (!activePage) return;
+    if (activePage.id === "page-dashboard") refreshDashboard();
+    if (activePage.id === "page-agents") loadAgents();
   }, REFRESH_INTERVAL);
 
   // Try to load script count for stat

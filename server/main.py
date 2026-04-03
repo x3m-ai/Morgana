@@ -9,6 +9,7 @@ FastAPI application serving:
 import json
 import logging
 import logging.handlers
+import asyncio
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -78,6 +79,45 @@ _setup_logging()
 log = logging.getLogger("morgana.server")
 
 
+
+async def _stale_agent_monitor() -> None:
+    """Background task: mark agents offline when they stop beaconing.
+
+    Runs every 15 seconds. An agent is considered stale when its last_seen
+    timestamp is older than max(beacon_interval * 3, 30) seconds.
+    """
+    from database import SessionLocal
+    from models.agent import Agent as AgentModel
+    from datetime import datetime as _dt
+
+    while True:
+        await asyncio.sleep(15)
+        try:
+            db = SessionLocal()
+            try:
+                now = _dt.utcnow()
+                live = db.query(AgentModel).filter(AgentModel.status != "offline").all()
+                changed = 0
+                for ag in live:
+                    if ag.last_seen is None:
+                        ag.status = "offline"
+                        changed += 1
+                        continue
+                    threshold = max((ag.beacon_interval or 30) * 3, 30)
+                    if (now - ag.last_seen).total_seconds() > threshold:
+                        ag.status = "offline"
+                        changed += 1
+                if changed:
+                    db.commit()
+                    log.info("[MONITOR] Marked %d stale agent(s) offline", changed)
+            finally:
+                db.close()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("[MONITOR] Stale agent check failed: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("[START] Morgana Server v%s", settings.version)
@@ -103,7 +143,10 @@ async def lifespan(app: FastAPI):
         log.warning("[START] Atomic Red Team path not configured or not found: %s", settings.atomic_path)
 
     log.info("[START] Morgana Server ready on port %d", settings.port)
+    _monitor_task = asyncio.create_task(_stale_agent_monitor())
+    log.info("[MONITOR] Stale agent monitor started")
     yield
+    _monitor_task.cancel()
     log.info("[STOP] Morgana Server shutting down")
 
 
