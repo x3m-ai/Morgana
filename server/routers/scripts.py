@@ -114,7 +114,7 @@ def create_script(payload: dict, db: Session = Depends(get_db)):
             raise HTTPException(status_code=422, detail=f"Field '{field}' is required")
 
     tcode_upper = payload["tcode"].upper()
-    source = payload.get("source", "custom")
+    source = payload.get("source", "morgana")
 
     # Deduplication: if a script with the same name + tcode + source already exists, return it
     existing = (

@@ -446,6 +446,7 @@ async function duplicateScript(id) {
         cleanup_command: s.cleanup_command,
         executor: s.executor,
         platform: s.platform,
+        source: "morgana",
       }),
     });
     allScripts = [];
@@ -599,7 +600,7 @@ async function loadAdminStatus() {
   try {
     const data = await apiFetch("/api/v2/admin/atomics/status");
     setVal("admin-atomic-db", data.atomic_scripts_in_db ?? "-");
-    setVal("admin-custom-db", data.custom_scripts_in_db ?? "-");
+    setVal("admin-custom-db", data.morgana_scripts_in_db ?? "-");
     setVal("admin-yaml-disk", data.yaml_files_on_disk ?? "-");
 
     const tbody = document.getElementById("admin-last-run-body");
@@ -880,7 +881,7 @@ function openNewScriptModal() {
     const el = document.getElementById(id);
     if (el) el.value = "";
   });
-  setVal("sm-source", "custom");
+  setVal("sm-source", "morgana");
   document.getElementById("sm-executor").value = "powershell";
   document.getElementById("sm-platform").value = "windows";
   document.getElementById("sm-delete-btn").style.display = "none";
@@ -895,7 +896,7 @@ function openScriptModal(scriptId) {
   const s = allScripts.find((x) => String(x.id) === String(scriptId));
   if (!s) { console.warn("[SCRIPT_MODAL] Script not found:", scriptId); return; }
   _currentScriptId = s.id;
-  _currentScriptIsAtomic = (s.source || "") !== "custom";
+  _currentScriptIsAtomic = (s.source || "") === "atomic-red-team";
 
   document.getElementById("scriptModalTitle").textContent = escHtml(s.name || "Script");
   document.getElementById("sm-name").value = s.name || "";
@@ -904,7 +905,7 @@ function openScriptModal(scriptId) {
   document.getElementById("sm-description").value = s.description || "";
   document.getElementById("sm-command").value = s.command || "";
   document.getElementById("sm-cleanup").value = s.cleanup_command || "";
-  document.getElementById("sm-source").value = s.source || "custom";
+  document.getElementById("sm-source").value = s.source || "morgana";
   document.getElementById("sm-executor").value = s.executor || "powershell";
   document.getElementById("sm-platform").value = s.platform || "all";
 

@@ -204,7 +204,7 @@ def atomic_status(key: Optional[str] = Header(None, alias="KEY")):
     db = SessionLocal()
     try:
         total_atomic = db.query(Script).filter(Script.source == "atomic-red-team").count()
-        total_custom = db.query(Script).filter(Script.source == "custom").count()
+        total_morgana = db.query(Script).filter(Script.source == "morgana").count()
     finally:
         db.close()
 
@@ -213,7 +213,7 @@ def atomic_status(key: Optional[str] = Header(None, alias="KEY")):
 
     return {
         "atomic_scripts_in_db": total_atomic,
-        "custom_scripts_in_db": total_custom,
+        "morgana_scripts_in_db": total_morgana,
         "yaml_files_on_disk": yaml_count,
         "last_run_stats": _last_stats,
     }
