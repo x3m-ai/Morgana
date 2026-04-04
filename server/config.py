@@ -50,6 +50,7 @@ class Settings:
     # Security
     hmac_secret: str = os.getenv("MORGANA_HMAC_SECRET", "change-this-in-production-please")
     token_expire_days: int = int(os.getenv("MORGANA_TOKEN_EXPIRE_DAYS", "365"))
+    secret_key: str = os.getenv("MORGANA_SECRET_KEY", "morgana-jwt-secret-change-in-production")
 
 
 settings = Settings()

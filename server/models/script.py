@@ -19,8 +19,11 @@ class Script(Base):
     cleanup_command = Column(Text)
     input_args = Column(Text)          # JSON: {arg_name: {type, default, description}}
     download_url = Column(Text)
-    source = Column(String, default="custom")  # atomic-red-team|custom|merlino
+    source = Column(String, default="morgana")  # atomic-red-team|morgana|system
     atomic_id = Column(String)         # Original Atomic test GUID
     platform = Column(String, default="all")  # windows|linux|macos|all
+    target_agent_paw    = Column(String)        # default execution agent
+    target_tag_selector = Column(Text)          # JSON/DSL selector: resolve agents at runtime
+    tag_params          = Column(Text, default="{}")  # JSON: {PARAM_KEY: {type, value, description}}
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

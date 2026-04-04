@@ -41,6 +41,9 @@
         <li class="nav-item" data-page="tags">
           <span class="nav-icon">[G]</span> Tags
         </li>
+        <li class="nav-item" data-page="users">
+          <span class="nav-icon">[U]</span> Users
+        </li>
         <li class="nav-item" data-page="admin">
           <span class="nav-icon">[*]</span> Admin
         </li>
@@ -54,6 +57,15 @@
 
     <!-- Main content -->
     <main class="main-content">
+
+      <!-- Workspace global bar -->
+      <div id="workspace-bar" class="hidden" style="display:none;align-items:center;gap:1rem;padding:.55rem 1.4rem;background:#1f2540;border-bottom:1px solid #3a3f6e;font-size:13px;position:sticky;top:0;z-index:90">
+        <span style="opacity:.7">Active Workspace:</span>
+        <strong id="ws-bar-name" style="color:#a78bfa"></strong>
+        <code id="ws-bar-expr" style="opacity:.55;font-size:11px"></code>
+        <span id="ws-bar-agents" style="opacity:.6;font-size:12px"></span>
+        <button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="clearActiveWorkspace()">Clear</button>
+      </div>
 
       <!-- Dashboard page -->
       <div id="page-dashboard" class="page active">
@@ -460,6 +472,13 @@
                   <option value="">-- select agent --</option>
                 </select>
               </div>
+              <div class="form-group" style="margin-top:.8rem">
+                <label>Tags</label>
+                <div id="camp-tags-container" class="tags-container">
+                  <span class="admin-hint">Save campaign first to assign tags.</span>
+                </div>
+                <button class="btn btn-secondary btn-sm" style="margin-top:.4rem" id="camp-add-tag-btn" disabled onclick="openTagPicker('campaign', _editingCampaign.id)">+ Add Tag</button>
+              </div>
             </div>
           </div>
 
@@ -475,50 +494,172 @@
 
       </div>
 
-      <!-- Admin page -->
       <!-- ── Tags page ── -->
       <div id="page-tags" class="page">
         <div class="page-header">
           <h1>Tags</h1>
-          <button class="btn btn-primary" onclick="showCreateTagForm()">+ New Tag</button>
         </div>
-        <div class="card">
+
+        <!-- Workspaces section -->
+        <div class="card" style="margin-bottom:1.2rem">
+          <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+            <h2>Workspaces</h2>
+            <button class="btn btn-primary btn-sm" onclick="showCreateWorkspaceForm()">+ New Workspace</button>
+          </div>
           <div class="card-body">
-            <div id="createTagForm" class="create-tag-form hidden">
+            <div id="createWorkspaceForm" class="hidden" style="margin-bottom:1rem;padding:.8rem;background:#1a1a2e;border-radius:6px">
               <div class="form-row">
-                <div class="form-group" style="flex:2;min-width:140px">
-                  <label>Tag name *</label>
-                  <input type="text" id="tagName" class="search-input" placeholder="e.g. critical" />
+                <div class="form-group" style="flex:2">
+                  <label>Workspace name *</label>
+                  <input type="text" id="wsName" class="search-input" placeholder="e.g. Production Windows" />
                 </div>
-                <div class="form-group" style="flex:2;min-width:140px">
-                  <label>Group</label>
-                  <input type="text" id="tagGroup" class="search-input" placeholder="e.g. priority" />
+                <div class="form-group" style="flex:3">
+                  <label>Tag selector *</label>
+                  <input type="text" id="wsExpr" class="search-input" placeholder='e.g. os=windows AND env=prod' />
                 </div>
-                <div class="form-group" style="flex:2;min-width:140px">
-                  <label>Scope</label>
-                  <select id="tagScope" class="select-input">
-                    <option value="all">All entities</option>
-                    <option value="agent">Agent only</option>
-                    <option value="script">Script only</option>
-                    <option value="chain">Chain only</option>
-                    <option value="test">Test only</option>
-                    <option value="campaign">Campaign only</option>
+              </div>
+              <div class="form-row" style="margin-top:.5rem">
+                <input type="text" id="wsDesc" class="search-input" style="flex:1" placeholder="Description (optional)" />
+                <button class="btn btn-primary" onclick="createWorkspace()">Create</button>
+                <button class="btn btn-secondary" onclick="hideCreateWorkspaceForm()">Cancel</button>
+              </div>
+            </div>
+            <div id="workspacesListBody">
+              <p class="admin-hint">Loading workspaces...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tag Definitions section -->
+        <div class="card">
+          <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+            <h2>Tag Definitions</h2>
+            <button class="btn btn-primary btn-sm" onclick="showCreateTagForm()">+ New Tag</button>
+          </div>
+          <div class="card-body">
+            <!-- Filters -->
+            <div class="form-row" style="margin-bottom:.75rem;gap:.6rem">
+              <input type="text" id="tagFilterText" class="search-input" style="flex:2;min-width:140px" placeholder="Search label / key..." oninput="applyTagFilters()" />
+              <input type="text" id="tagFilterNs" class="search-input" style="flex:1;min-width:100px" placeholder="Namespace..." oninput="applyTagFilters()" />
+              <select id="tagFilterType" class="select-input" style="flex:1;min-width:110px" onchange="applyTagFilters()">
+                <option value="">All types</option>
+                <option value="flag">flag</option>
+                <option value="string">string</option>
+                <option value="number">number</option>
+                <option value="boolean">boolean</option>
+                <option value="enum">enum</option>
+                <option value="list">list</option>
+              </select>
+              <select id="tagFilterMeta" class="select-input" style="flex:1;min-width:110px" onchange="applyTagFilters()">
+                <option value="">All</option>
+                <option value="runtime">Runtime params</option>
+                <option value="filterable">Filterable</option>
+              </select>
+            </div>
+
+            <!-- Create form -->
+            <div id="createTagForm" class="hidden" style="margin-bottom:1rem;padding:.8rem;background:#1a1a2e;border-radius:6px">
+              <div class="form-row">
+                <div class="form-group" style="flex:2;min-width:120px">
+                  <label>Label *</label>
+                  <input type="text" id="tagLabel" class="search-input" placeholder="e.g. Critical Host" />
+                </div>
+                <div class="form-group" style="flex:1;min-width:100px">
+                  <label>Key *</label>
+                  <input type="text" id="tagKey" class="search-input" placeholder="e.g. env" />
+                </div>
+                <div class="form-group" style="flex:1;min-width:80px">
+                  <label>Value</label>
+                  <input type="text" id="tagValue" class="search-input" placeholder="e.g. prod" />
+                </div>
+                <div class="form-group" style="flex:1;min-width:100px">
+                  <label>Namespace</label>
+                  <input type="text" id="tagNamespace" class="search-input" placeholder="e.g. infra" />
+                </div>
+                <div class="form-group" style="flex:1;min-width:90px">
+                  <label>Type</label>
+                  <select id="tagType" class="select-input">
+                    <option value="string">string</option>
+                    <option value="flag">flag</option>
+                    <option value="number">number</option>
+                    <option value="boolean">boolean</option>
+                    <option value="enum">enum</option>
+                    <option value="list">list</option>
                   </select>
                 </div>
                 <div class="form-group" style="flex:0">
                   <label>Color</label>
-                  <input type="color" id="tagColor" value="#667eea" title="Tag color" style="width:46px;height:34px;border:none;background:none;cursor:pointer;padding:0" />
+                  <input type="color" id="tagColor" value="#667eea" style="width:46px;height:34px;border:none;background:none;cursor:pointer;padding:0" />
                 </div>
               </div>
-              <div class="form-row" style="margin-top:.6rem">
+              <div class="form-row" style="margin-top:.5rem;gap:.5rem">
                 <input type="text" id="tagDescription" class="search-input" style="flex:1" placeholder="Description (optional)" />
+                <label style="display:flex;align-items:center;gap:.3rem;font-size:13px;white-space:nowrap">
+                  <input type="checkbox" id="tagIsRuntimeParam" /> Runtime param
+                </label>
+                <label style="display:flex;align-items:center;gap:.3rem;font-size:13px;white-space:nowrap">
+                  <input type="checkbox" id="tagIsFilterable" checked /> Filterable
+                </label>
                 <button class="btn btn-primary" onclick="createTag()">Create</button>
                 <button class="btn btn-secondary" onclick="hideCreateTagForm()">Cancel</button>
               </div>
             </div>
-            <table class="data-table" id="tagsTable" style="margin-top:.75rem">
-              <thead><tr><th>Name</th><th>Group</th><th>Scope</th><th>Description</th><th>Usage</th><th></th></tr></thead>
-              <tbody id="tagsTableBody"><tr><td colspan="6" class="empty-row">Loading...</td></tr></tbody>
+
+            <table class="data-table" id="tagsTable" style="margin-top:.5rem">
+              <thead>
+                <tr>
+                  <th>Label</th><th>Key=Value</th><th>Namespace</th><th>Type</th><th>Scope</th><th>Flags</th><th>Usage</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="tagsTableBody"><tr><td colspan="8" class="empty-row">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Users page ── -->
+      <div id="page-users" class="page">
+        <div class="page-header">
+          <h1>Users</h1>
+          <button class="btn btn-primary" onclick="showCreateUserForm()">+ New User</button>
+        </div>
+        <div class="card" id="userCreateCard" class="hidden" style="display:none;margin-bottom:1.2rem">
+          <div class="card-header"><h2>Create User</h2></div>
+          <div class="card-body">
+            <div class="form-row">
+              <div class="form-group" style="flex:2">
+                <label>Full name *</label>
+                <input type="text" id="userName" class="search-input" placeholder="Jane Doe" />
+              </div>
+              <div class="form-group" style="flex:2">
+                <label>Email *</label>
+                <input type="email" id="userEmail" class="search-input" placeholder="jane@example.com" />
+              </div>
+              <div class="form-group" style="flex:1">
+                <label>Alias</label>
+                <input type="text" id="userAka" class="search-input" placeholder="jdoe" />
+              </div>
+            </div>
+            <div class="form-row" style="margin-top:.5rem">
+              <div class="form-group" style="flex:2">
+                <label>Password *</label>
+                <input type="password" id="userPassword" class="search-input" placeholder="Min 8 chars" />
+              </div>
+              <label style="display:flex;align-items:center;gap:.3rem;font-size:13px">
+                <input type="checkbox" id="userIsAdmin" /> Admin
+              </label>
+              <button class="btn btn-primary" onclick="createUser()">Create</button>
+              <button class="btn btn-secondary" onclick="hideCreateUserForm()">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-body">
+            <table class="data-table" id="usersTable">
+              <thead>
+                <tr><th>Name</th><th>Email</th><th>Alias</th><th>Role</th><th>Active</th><th>Last Login</th><th></th></tr>
+              </thead>
+              <tbody id="usersTableBody"><tr><td colspan="7" class="empty-row">Loading...</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -1030,7 +1171,7 @@
         <button class="modal-close" onclick="closeQuickExecModal()">&times;</button>
       </div>
       <div class="modal-body">
-        <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--text-secondary)">Target Agent</label>
+        <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--text-secondary)">Target</label>
         <select id="qe-agent-sel" style="width:100%;margin-bottom:20px;background:var(--bg-input,#3a3a3a);color:var(--text-primary,#fff);border:1px solid var(--border-color,#555);border-radius:4px;padding:6px 8px;font-size:13px"></select>
         <div style="display:flex;gap:8px;justify-content:flex-end">
           <button class="btn btn-secondary" onclick="closeQuickExecModal()">Cancel</button>
@@ -1040,6 +1181,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=17"></script>
 </body>
 </html>

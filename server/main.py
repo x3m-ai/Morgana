@@ -191,8 +191,16 @@ app.include_router(scripts_router, prefix="/api/v2/scripts", tags=["scripts"])
 # Admin (reload atomics, status)
 app.include_router(admin_router, prefix="/api/v2/admin", tags=["admin"])
 
-# Tags (entity labeling)
+# Tags (entity labeling + workspaces + selectors)
 app.include_router(tags_router, prefix="/api/v2/tags", tags=["tags"])
+
+# Users management
+from routers.users import router as users_router
+app.include_router(users_router, prefix="/api/v2/users", tags=["users"])
+
+# Auth (register / login / activate / reset)
+from routers.auth import router as auth_router
+app.include_router(auth_router, prefix="/api/v2/auth", tags=["auth"])
 
 # Jobs (output polling)
 app.include_router(jobs_router, prefix="/api/v2/jobs", tags=["jobs"])

@@ -80,6 +80,7 @@ def list_scripts(
             "cleanup_command": s.cleanup_command,
             "input_args": s.input_args,
             "description": s.description,
+            "target_agent_paw": s.target_agent_paw or None,
         }
         for s in scripts
     ]
@@ -103,6 +104,7 @@ def get_script(script_id: str, db: Session = Depends(get_db)):
         "cleanup_command": s.cleanup_command,
         "input_args": s.input_args,
         "description": s.description,
+        "target_agent_paw": s.target_agent_paw or None,
     }
 
 
@@ -168,7 +170,8 @@ def update_script(script_id: str, payload: dict, db: Session = Depends(get_db), 
         raise HTTPException(status_code=404, detail="Script not found")
 
     editable = ("name", "tcode", "tactic", "executor", "platform", "command",
-                "cleanup_command", "input_args", "description", "download_url")
+                "cleanup_command", "input_args", "description", "download_url",
+                "target_agent_paw")
     for field in editable:
         if field in payload:
             val = payload[field]
@@ -185,6 +188,7 @@ def update_script(script_id: str, payload: dict, db: Session = Depends(get_db), 
         "executor": s.executor, "platform": s.platform, "source": s.source,
         "command": s.command, "cleanup_command": s.cleanup_command,
         "input_args": s.input_args, "description": s.description,
+        "target_agent_paw": s.target_agent_paw or None,
     }
 
 

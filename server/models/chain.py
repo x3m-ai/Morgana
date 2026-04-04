@@ -16,10 +16,12 @@ class Chain(Base):
     tcode_coverage = Column(Text)   # Comma-separated TCodes
     author = Column(String)
     tags = Column(String)           # JSON array
-    flow_json  = Column(Text, default='{"nodes":[]}')   # Visual flow definition
-    agent_paw  = Column(String)        # Default agent to execute this chain
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    flow_json           = Column(Text, default='{"nodes":[]}')  # Visual flow definition
+    agent_paw           = Column(String)   # Default agent (kept for compat)
+    target_tag_selector = Column(Text)     # Tag DSL/selector: resolve agents at runtime
+    tag_params          = Column(Text, default="{}")  # JSON param defs for placeholder subst.
+    created_at          = Column(DateTime, default=datetime.utcnow)
+    updated_at          = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class ChainStep(Base):
