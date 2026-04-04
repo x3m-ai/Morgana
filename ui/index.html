@@ -532,8 +532,63 @@
           </div>
         </div>
 
-        <!-- Atomic Red Team status -->
+        <!-- Server Information -->
         <div class="card">
+          <div class="card-header"><h2>Server Information</h2></div>
+          <div class="card-body">
+            <div class="stats-row" style="margin-bottom:1.2rem">
+              <div class="stat-card">
+                <div class="stat-value" id="sinfo-ip" style="font-size:1rem;letter-spacing:.03em">-</div>
+                <div class="stat-label">IP Address</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="sinfo-hostname" style="font-size:1rem">-</div>
+                <div class="stat-label">Machine Name</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="sinfo-platform">-</div>
+                <div class="stat-label">Platform</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="sinfo-port">-</div>
+                <div class="stat-label">Server Port</div>
+              </div>
+            </div>
+            <div class="stats-row" style="margin-bottom:1.4rem">
+              <div class="stat-card">
+                <div class="stat-value" id="sinfo-mem-used">-</div>
+                <div class="stat-label">Memory Used %</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="sinfo-mem-avail">-</div>
+                <div class="stat-label">Memory Free GB</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="sinfo-disk-used">-</div>
+                <div class="stat-label">Disk Used %</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="sinfo-disk-free">-</div>
+                <div class="stat-label">Disk Free GB</div>
+              </div>
+            </div>
+
+            <!-- DNS name (editable) -->
+            <div style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap">
+              <label style="color:var(--text-muted);font-size:13px;white-space:nowrap">Public DNS name (optional):</label>
+              <input type="text" id="sinfodns" class="search-input" style="max-width:320px;font-size:.85rem"
+                placeholder="e.g. morgana.corp.example.com  (leave empty to use IP)" />
+              <button class="btn btn-primary" onclick="saveServerDns()">Save DNS</button>
+              <span id="sinfoSaved" class="admin-hint" style="display:none">[SAVED]</span>
+            </div>
+            <p class="admin-hint" style="margin-top:.5rem">
+              The DNS name is used in one-liner installer commands. If empty, the server IP address is used.
+              The IP address is read-only (detected from the host network interface).
+            </p>
+          </div>
+        </div>
+        <!-- Atomic Red Team status -->
+        <div class="card" style="margin-top:1rem">
           <div class="card-header">
             <h2>Atomic Red Team</h2>
           </div>

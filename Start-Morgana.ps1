@@ -27,7 +27,7 @@ $ServerDir   = Join-Path $ScriptDir "server"
 $VenvPython  = Join-Path $ServerDir ".venv\Scripts\python.exe"
 $SystemPython = "python"
 $PidFile     = Join-Path $ScriptDir "morgana.pid"
-$LogFile     = Join-Path $ServerDir "logs" "server.log"
+$LogFile     = Join-Path (Join-Path $ServerDir "logs") "server.log"
 $MainScript  = Join-Path $ServerDir "main.py"
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────

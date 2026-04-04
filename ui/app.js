@@ -256,7 +256,18 @@ async function purgeStaleAgents() {
   }
 }
 
+// Cache last-known server info (populated by loadAdminStatus / showDeployToken)
+let _serverInfo = { ip_address: null, dns_name: "", server_port: 8888 };
+
 async function showDeployToken() {
+  // Fetch fresh server info to get the correct IP/DNS for agent one-liners
+  try {
+    const info = await apiFetch("/api/v2/admin/server-info");
+    _serverInfo = info;
+  } catch (err) {
+    console.warn("[DEPLOY] Could not fetch server-info:", err.message);
+  }
+
   let deployToken;
   try {
     const resp = await apiFetch("/api/v2/admin/deploy-token", { method: "POST" });
@@ -266,21 +277,24 @@ async function showDeployToken() {
     return;
   }
 
-  const origin = window.location.origin;
-  const isHttps = origin.startsWith("https");
-  const k       = isHttps ? "[Net.ServicePointManager]::ServerCertificateValidationCallback={$true};" : "";
-  const curlK   = isHttps ? "-k" : "";
-  const d       = "C:\\ProgramData\\Morgana\\agent";
+  // Use DNS if configured, otherwise fall back to server IP, then browser hostname
+  const host = (_serverInfo.dns_name && _serverInfo.dns_name.trim())
+    ? _serverInfo.dns_name.trim()
+    : (_serverInfo.ip_address || window.location.hostname);
+  const port = _serverInfo.server_port || 8888;
+  const origin = `http://${host}:${port}`;
+
+  const d = "C:\\ProgramData\\Morgana\\agent";
 
   // Windows: true one-liner -- download binary then install NT service (run as Administrator)
   const winCmd =
-    `${k}$d='${d}';New-Item $d -Force -ItemType Directory|Out-Null;` +
+    `$d='${d}';New-Item $d -Force -ItemType Directory|Out-Null;` +
     `(New-Object Net.WebClient).DownloadFile('${origin}/download/morgana-agent.exe',"$d\\morgana-agent.exe");` +
     `&"$d\\morgana-agent.exe" install --server ${origin} --token ${deployToken}`;
 
   // Linux: true one-liner -- download binary then install systemd service (run as root)
   const linCmd =
-    `curl ${curlK}sSL '${origin}/download/morgana-agent' -o /tmp/morgana-agent` +
+    `curl -sSL '${origin}/download/morgana-agent' -o /tmp/morgana-agent` +
     ` && chmod +x /tmp/morgana-agent` +
     ` && sudo /tmp/morgana-agent install --server ${origin} --token ${deployToken}`;
 
@@ -613,8 +627,55 @@ async function loadAdminStatus() {
     // Load API keys table
     loadApiKeys();
 
+    // Load server info (hostname, IP, DNS, memory, disk)
+    loadServerInfo();
+
   } catch (err) {
     console.error("[ADMIN] Status load failed:", err.message);
+  }
+}
+
+async function loadServerInfo() {
+  try {
+    const info = await apiFetch("/api/v2/admin/server-info");
+    _serverInfo = info;
+    setVal("sinfo-ip", info.ip_address || "-");
+    setVal("sinfo-hostname", info.hostname || "-");
+    setVal("sinfo-platform", (info.platform || "-") + (info.python_version ? " / Py " + info.python_version : ""));
+    setVal("sinfo-port", info.server_port || "-");
+    if (info.memory && info.memory.used_pct != null) {
+      setVal("sinfo-mem-used", info.memory.used_pct + "%");
+      setVal("sinfo-mem-avail", (info.memory.available_gb ?? "-") + " GB");
+    } else {
+      setVal("sinfo-mem-used", info.memory?.note || "-");
+      setVal("sinfo-mem-avail", "-");
+    }
+    if (info.disk && info.disk.used_pct != null) {
+      setVal("sinfo-disk-used", info.disk.used_pct + "%");
+      setVal("sinfo-disk-free", (info.disk.free_gb ?? "-") + " GB");
+    } else {
+      setVal("sinfo-disk-used", info.disk?.error || "-");
+      setVal("sinfo-disk-free", "-");
+    }
+    const dnsInput = document.getElementById("sinfodns");
+    if (dnsInput) dnsInput.value = info.dns_name || "";
+  } catch (err) {
+    console.warn("[ADMIN] Server info load failed:", err.message);
+  }
+}
+
+async function saveServerDns() {
+  const val = (document.getElementById("sinfodns")?.value || "").trim();
+  try {
+    const updated = await apiFetch("/api/v2/admin/settings", {
+      method: "PUT",
+      body: JSON.stringify({ dns_name: val }),
+    });
+    _serverInfo.dns_name = updated.dns_name ?? val;
+    const saved = document.getElementById("sinfoSaved");
+    if (saved) { saved.style.display = "inline"; setTimeout(() => { saved.style.display = "none"; }, 2000); }
+  } catch (err) {
+    alert("Failed to save DNS: " + err.message);
   }
 }
 

@@ -4,10 +4,14 @@ Admin router — privileged server management operations.
 POST /api/v2/admin/atomics/reload   Full wipe + re-import of all Atomic Red Team scripts
 GET  /api/v2/admin/atomics/status   Show atomic loader stats from last run
 GET  /api/v2/admin/settings         Read global server settings
-PUT  /api/v2/admin/settings         Update global server settings (default_beacon_interval, ...)
+PUT  /api/v2/admin/settings         Update global server settings (default_beacon_interval, dns_name, ...)
+GET  /api/v2/admin/server-info      Return hostname, IP, memory, disk info
 """
 import json
 import logging
+import platform
+import shutil
+import socket
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, Header, HTTPException
@@ -61,6 +65,7 @@ def _require_api_key(key: Optional[str] = Header(None, alias="KEY")):
 
 class ServerSettingsBody(BaseModel):
     default_beacon_interval: Optional[int] = None  # seconds, 5-3600
+    dns_name: Optional[str] = None                 # public DNS name (empty string = clear)
 
 
 @router.get("/settings")
@@ -80,9 +85,74 @@ def put_server_settings(body: ServerSettingsBody, key: Optional[str] = Header(No
             raise HTTPException(status_code=400, detail="beacon_interval must be between 5 and 3600 seconds")
         data["default_beacon_interval"] = body.default_beacon_interval
         settings.default_beacon_interval = body.default_beacon_interval  # in-memory update
+    if body.dns_name is not None:
+        data["dns_name"] = body.dns_name.strip()
     _save_server_settings(data)
     log.info("[ADMIN] Global settings updated: %s", data)
     return data
+
+
+@router.get("/server-info")
+def get_server_info(key: Optional[str] = Header(None, alias="KEY")):
+    """Return server hostname, primary IP, memory usage, disk usage, and platform info."""
+    _require_api_key(key)
+
+    # Hostname
+    hostname = socket.gethostname()
+
+    # Primary IP address (the one used for outbound connections)
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip_address = s.getsockname()[0]
+        s.close()
+    except Exception:
+        try:
+            ip_address = socket.gethostbyname(hostname)
+        except Exception:
+            ip_address = "127.0.0.1"
+
+    # Memory (try psutil, fallback to platform)
+    memory_info: dict = {}
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        memory_info = {
+            "total_gb": round(vm.total / (1024 ** 3), 2),
+            "available_gb": round(vm.available / (1024 ** 3), 2),
+            "used_pct": vm.percent,
+        }
+    except ImportError:
+        memory_info = {"note": "psutil not installed"}
+
+    # Disk (path where morgana DB lives)
+    disk_info: dict = {}
+    try:
+        disk_path = Path(settings.db_path).parent
+        disk = shutil.disk_usage(str(disk_path))
+        disk_info = {
+            "path": str(disk_path),
+            "total_gb": round(disk.total / (1024 ** 3), 2),
+            "free_gb": round(disk.free / (1024 ** 3), 2),
+            "used_pct": round((disk.used / disk.total) * 100, 1) if disk.total else 0,
+        }
+    except Exception as exc:
+        disk_info = {"error": str(exc)}
+
+    # DNS name from persisted settings
+    saved = _load_server_settings()
+
+    return {
+        "hostname": hostname,
+        "ip_address": ip_address,
+        "dns_name": saved.get("dns_name", ""),
+        "platform": platform.system(),
+        "platform_version": platform.version()[:80],
+        "python_version": platform.python_version(),
+        "server_port": settings.port,
+        "memory": memory_info,
+        "disk": disk_info,
+    }
 
 
 # ─── Atomic Red Team endpoints ────────────────────────────────────────────────
