@@ -1796,7 +1796,8 @@ function _renderScriptNodeHTML(node, branch, ifElseId) {
       <div class="csn-tcode">${escHtml(node.tcode || "?")}</div>
       <div class="csn-name">${escHtml(node.script_name || "Unknown Script")}</div>
       <div class="csn-actions">
-        <button class="btn btn-secondary btn-sm" onclick="replaceChainScript('${nid}','${br}','${iid}')">Open</button>
+        <button class="btn btn-secondary btn-sm" onclick="openChainNodeScript('${nid}')">Open</button>
+        <button class="btn btn-secondary btn-sm" onclick="replaceChainScript('${nid}','${br}','${iid}')">Change</button>
         <button class="btn btn-danger btn-sm"    onclick="removeChainNode('${nid}','${br}','${iid}')">Remove</button>
       </div>
     </div>`;
@@ -1993,6 +1994,35 @@ function replaceChainScript(nodeId, branch, ifElseIdStr) {
 }
 
 // ── Remove node ───────────────────────────────────────────────────────────────
+
+// ── Open script detail from chain node ──────────────────────────────────────────
+
+function _findNodeInTree(nodes, nodeId) {
+  for (const n of nodes) {
+    if (n.id === nodeId) return n;
+    if (n.type === "if_else") {
+      const r = _findNodeInTree(n.if_nodes || [], nodeId)
+             || _findNodeInTree(n.else_nodes || [], nodeId);
+      if (r) return r;
+    }
+  }
+  return null;
+}
+
+async function openChainNodeScript(nodeId) {
+  const node = _findNodeInTree(_editingChain.nodes, nodeId);
+  if (!node || !node.script_id) { alert("Script not found in chain."); return; }
+  if (!allScripts.length) {
+    try {
+      const data = await apiFetch("/api/v2/scripts?limit=5000");
+      allScripts = data.scripts || data || [];
+    } catch (e) {
+      alert("Could not load scripts: " + e.message);
+      return;
+    }
+  }
+  openScriptModal(node.script_id);
+}
 
 function removeChainNode(nodeId, branch, ifElseIdStr) {
   if (!confirm("WARNING: This will remove the selected node AND all nodes that follow it in this branch.\nThis action cannot be undone.\n\nContinue?")) return;
@@ -2528,7 +2558,8 @@ function _renderCampChainNodeHTML(node, branch, parallelId) {
       <div class="csn-tactic" style="color:var(--accent)">CHAIN</div>
       <div class="csn-name">${escHtml(node.chain_name || "Unknown Chain")}</div>
       <div class="csn-actions">
-        <button class="btn btn-secondary btn-sm" onclick="replaceCampChain('${nid}','${br}','${pid}')">Open</button>
+        <button class="btn btn-secondary btn-sm" onclick="openCampNodeChain('${nid}')">Open</button>
+        <button class="btn btn-secondary btn-sm" onclick="replaceCampChain('${nid}','${br}','${pid}')">Change</button>
         <button class="btn btn-danger btn-sm"    onclick="removeCampNode('${nid}','${br}','${pid}')">Remove</button>
       </div>
     </div>`;
@@ -2714,6 +2745,58 @@ function replaceCampChain(nodeId, branch, parallelIdStr) {
 }
 
 // ── Remove node ───────────────────────────────────────────────────────────────
+
+// ── Open chain detail from campaign node ────────────────────────────────────────
+
+function _findCampNodeInTree(nodes, nodeId) {
+  for (const n of nodes) {
+    if (n.id === nodeId) return n;
+    if (n.type === "parallel") {
+      for (const branch of (n.branches || [])) {
+        const r = _findCampNodeInTree(branch, nodeId);
+        if (r) return r;
+      }
+    }
+  }
+  return null;
+}
+
+async function openCampNodeChain(nodeId) {
+  const node = _findCampNodeInTree(_editingCampaign.nodes, nodeId);
+  if (!node || !node.chain_id) { alert("Chain not found in campaign."); return; }
+  let chain = (_allChains || []).find((c) => String(c.id) === String(node.chain_id));
+  if (!chain) {
+    try {
+      chain = await apiFetch("/api/v2/chains/" + node.chain_id);
+    } catch (e) {
+      alert("Could not load chain: " + e.message);
+      return;
+    }
+  }
+  document.getElementById("cdm-title").textContent = chain.name || "Chain Detail";
+  const descEl = document.getElementById("cdm-desc");
+  if (descEl) descEl.textContent = chain.description || "";
+  const scriptNodes = (chain.flow && chain.flow.nodes ? chain.flow.nodes : [])
+    .filter((n) => n.type === "script" || !n.type);
+  const tbody = document.getElementById("cdm-tbody");
+  if (!scriptNodes.length) {
+    tbody.innerHTML = "<tr><td colspan=\"4\" class=\"empty-row\">No scripts in this chain</td></tr>";
+  } else {
+    tbody.innerHTML = scriptNodes.map((n, i) =>
+      "<tr>" +
+      "<td>" + (i + 1) + "</td>" +
+      "<td>" + escHtml(n.tactic || "-") + "</td>" +
+      "<td>" + escHtml(n.tcode  || "-") + "</td>" +
+      "<td>" + escHtml(n.script_name || "-") + "</td>" +
+      "</tr>"
+    ).join("");
+  }
+  document.getElementById("chainDetailModal").classList.remove("hidden");
+}
+
+function closeChainDetailModal() {
+  document.getElementById("chainDetailModal").classList.add("hidden");
+}
 
 function removeCampNode(nodeId, branch, parallelIdStr) {
   if (!confirm("Remove this node and all nodes that follow it in this branch?")) return;

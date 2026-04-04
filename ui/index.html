@@ -991,6 +991,30 @@
     </div>
   </div>
 
+  <!-- Chain Detail (read-only, opened from campaign node) -->
+  <div id="chainDetailModal" class="modal hidden">
+    <div class="modal-content" style="max-width:680px;width:96%;max-height:82vh;overflow:hidden;display:flex;flex-direction:column">
+      <div class="modal-header">
+        <h3 id="cdm-title">Chain Detail</h3>
+        <button class="modal-close" onclick="closeChainDetailModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="overflow-y:auto;flex:1">
+        <div id="cdm-desc" style="margin-bottom:12px;color:var(--text-muted);font-size:13px"></div>
+        <table class="data-table">
+          <thead>
+            <tr><th>#</th><th>Tactic</th><th>TCode</th><th>Script Name</th></tr>
+          </thead>
+          <tbody id="cdm-tbody">
+            <tr><td colspan="4" class="empty-row">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeChainDetailModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Campaign: Add-node floating popup -->
   <div id="campAddMenu" class="chain-add-menu hidden">
     <button onclick="campMenuAddChain()">Chain Node</button>
@@ -1016,6 +1040,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=2"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>
