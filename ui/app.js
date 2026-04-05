@@ -14,7 +14,10 @@ let refreshTimer = null;
 
 // Auth state
 let _currentUser = null;
+let _cachedUsers  = [];
 let _morganaJWT  = localStorage.getItem("morgana_jwt") || null;
+let _editingUserId   = null;
+let _editingUserTagIds = [];
 
 // Verify JWT on startup; redirect to login if missing / expired
 async function initAuth() {
@@ -1588,6 +1591,7 @@ function _wsLabel(workspaces) {
 
 function renderUsersTable(users) {
   const tbody = document.getElementById("usersTableBody");
+  _cachedUsers = users;
   if (!tbody) return;
   if (!users.length) {
     tbody.innerHTML = `<tr><td colspan="9" class="empty-row">No users yet.</td></tr>`;
@@ -1599,10 +1603,7 @@ function renderUsersTable(users) {
     const tagBadges = (u.tags || []).map((t) =>
       `<span class="tag-badge" style="background:${escHtml(t.color || "#667eea")}">${escHtml(t.label || "")}</span>`
     ).join("");
-    const actions = isBreakGlass
-      ? `<button class="btn btn-secondary btn-sm" onclick="showChangePasswordModal()">Chg.Pw</button>`
-      : `<button class="btn btn-sm" style="background:${u.is_enabled ? "var(--danger)" : "var(--success)"}" onclick="${u.is_enabled ? "disableUser" : "enableUser"}('${escHtml(String(u.id))}')">${u.is_enabled ? "Disable" : "Enable"}</button>
-         <button class="btn btn-danger btn-sm" onclick="deleteUser('${escHtml(String(u.id))}')">Del</button>`;
+    const actions = `<button class="btn btn-secondary btn-sm" onclick="openUserModal('${escHtml(String(u.id))}')">Open</button>`;
     return `<tr>
       <td>${escHtml(u.name || "")}${isBreakGlass ? " <span title=\"Break Glass\" style=\"color:#f59e0b;font-size:11px\">[BG]</span>" : ""}</td>
       <td style="font-size:12px">${escHtml(u.email || "")}</td>
@@ -1615,6 +1616,175 @@ function renderUsersTable(users) {
       <td style="white-space:nowrap">${actions}</td>
     </tr>`;
   }).join("");
+}
+
+
+// -- User edit modal --------------------------------------------------------
+
+// -- User edit modal --------------------------------------------------------
+
+async function openUserModal(userId) {
+  _editingUserId   = userId;
+  _editingUserTagIds = [];
+  const u = _cachedUsers.find((x) => String(x.id) === String(userId));
+  if (!u) return;
+  const isBreakGlass = u.is_break_glass || false;
+  const roleColor = u.role === "admin" ? "#f59e0b" : u.role === "reader" ? "#aaa" : "var(--text-primary)";
+
+  document.getElementById("uem-title").textContent = u.name + (isBreakGlass ? " [BG]" : "");
+
+  document.getElementById("uem-static").innerHTML =
+    `<span style="color:var(--text-muted)">Email</span><span>${escHtml(u.email || "-")}</span>` +
+    `<span style="color:var(--text-muted)">Provider</span><span>${escHtml(u.auth_provider || "local")}</span>`;
+
+  document.getElementById("uem-aka").value = u.aka || "";
+
+  const roleEl = document.getElementById("uem-role");
+  roleEl.value    = u.role || "contributor";
+  roleEl.disabled = isBreakGlass;
+
+  const enabledCb = document.getElementById("uem-enabled");
+  enabledCb.checked  = !!u.is_enabled;
+  enabledCb.disabled = isBreakGlass;
+
+  const delBtn = document.getElementById("uem-delete-btn");
+  if (delBtn) delBtn.style.display = isBreakGlass ? "none" : "";
+
+  const chpw = document.getElementById("uem-chpw");
+  if (isBreakGlass) {
+    ["uemCpCurrentPw","uemCpNewPw","uemCpConfirmPw"].forEach((id) => { const e = document.getElementById(id); if (e) e.value = ""; });
+    const err = document.getElementById("uemCpError"); if (err) err.style.display = "none";
+    chpw.style.display = "";
+  } else {
+    chpw.style.display = "none";
+  }
+
+  const wsDiv  = document.getElementById("uem-workspaces");
+  const tagDiv = document.getElementById("uem-tags");
+  wsDiv.innerHTML  = `<span style="color:var(--text-muted);font-size:12px">Loading...</span>`;
+  tagDiv.innerHTML = `<span style="color:var(--text-muted);font-size:12px">Loading...</span>`;
+
+  document.getElementById("userEditModal").style.display = "flex";
+
+  try {
+    const [allWsData, allTagsData, userTagsData] = await Promise.all([
+      apiFetch("/api/v2/tags/workspaces"),
+      apiFetch("/api/v2/tags"),
+      apiFetch(`/api/v2/tags/entity/user/${userId}`),
+    ]);
+
+    const userWsList = (() => {
+      try { return Array.isArray(u.workspaces) ? u.workspaces : JSON.parse(u.workspaces || '["__ALL__"]'); }
+      catch (_) { return ["__ALL__"]; }
+    })();
+    const isAllWs = userWsList.includes("__ALL__");
+    const wsArr   = Array.isArray(allWsData) ? allWsData : (allWsData.workspaces || []);
+
+    let wsHtml = `<label style="display:flex;gap:6px;align-items:center;margin-bottom:8px;font-size:13px">` +
+      `<input type="checkbox" id="uem-ws-all" onchange="uemToggleAllWorkspaces(this.checked)" ${isAllWs ? "checked" : ""}> All workspaces</label>` +
+      `<div id="uem-ws-list" style="${isAllWs ? "opacity:.4;pointer-events:none" : ""}">`;
+    wsArr.forEach((ws) => {
+      const checked = !isAllWs && userWsList.includes(ws.id) ? "checked" : "";
+      wsHtml += `<label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-bottom:4px">` +
+        `<input type="checkbox" class="uem-ws-cb" value="${escHtml(ws.id)}" ${checked}> ${escHtml(ws.name || ws.id)}</label>`;
+    });
+    wsHtml += `</div>`;
+    wsDiv.innerHTML = wsArr.length ? wsHtml : `<label style="display:flex;gap:6px;align-items:center;font-size:13px">` +
+      `<input type="checkbox" id="uem-ws-all" checked onchange="uemToggleAllWorkspaces(this.checked)"> All workspaces</label>`;
+
+    const assignedTags = Array.isArray(userTagsData) ? userTagsData : (userTagsData.tags || []);
+    _editingUserTagIds = assignedTags.map((t) => String(t.id || t.tag_id));
+
+    const tagsArr = Array.isArray(allTagsData) ? allTagsData : (allTagsData.tags || []);
+    if (!tagsArr.length) {
+      tagDiv.innerHTML = `<span style="color:var(--text-muted);font-size:12px">No tags defined</span>`;
+    } else {
+      let tagsHtml = "";
+      tagsArr.forEach((t) => {
+        const checked = _editingUserTagIds.includes(String(t.id)) ? "checked" : "";
+        tagsHtml +=
+          `<label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-bottom:5px">` +
+          `<input type="checkbox" class="uem-tag-cb" value="${escHtml(String(t.id))}" ${checked}>` +
+          `<span class="tag-badge" style="background:${escHtml(t.color || "#667eea")}">${escHtml(t.label || t.name || "")}</span></label>`;
+      });
+      tagDiv.innerHTML = tagsHtml;
+    }
+  } catch (err) {
+    wsDiv.innerHTML  = `<span style="color:var(--danger);font-size:12px">[ERROR] ${escHtml(err.message)}</span>`;
+    tagDiv.innerHTML = "";
+  }
+}
+
+function closeUserModal() {
+  const m = document.getElementById("userEditModal");
+  if (m) m.style.display = "none";
+}
+
+function uemToggleAllWorkspaces(checked) {
+  const list = document.getElementById("uem-ws-list");
+  if (list) { list.style.opacity = checked ? ".4" : "1"; list.style.pointerEvents = checked ? "none" : ""; }
+}
+
+async function saveUserEdits() {
+  const userId = _editingUserId;
+  if (!userId) return;
+  const u = _cachedUsers.find((x) => String(x.id) === String(userId));
+  if (!u) return;
+
+  const aka     = (document.getElementById("uem-aka")?.value || "").trim() || null;
+  const role    = document.getElementById("uem-role")?.value || u.role;
+  const enabled = !!document.getElementById("uem-enabled")?.checked;
+
+  const allWsCb = document.getElementById("uem-ws-all");
+  const workspaces = allWsCb?.checked
+    ? ["__ALL__"]
+    : [...document.querySelectorAll(".uem-ws-cb:checked")].map((cb) => cb.value).filter(Boolean);
+
+  const newTagIds = [...document.querySelectorAll(".uem-tag-cb:checked")].map((cb) => cb.value);
+  const toAdd    = newTagIds.filter((id) => !_editingUserTagIds.includes(id));
+  const toRemove = _editingUserTagIds.filter((id) => !newTagIds.includes(id));
+
+  try {
+    await apiFetch(`/api/v2/users/${userId}`, {
+      method: "PUT",
+      body: JSON.stringify({ aka: aka || null, role, workspaces: workspaces.length ? workspaces : ["__ALL__"] }),
+    });
+
+    if (!u.is_break_glass) {
+      if (enabled && !u.is_enabled)  await apiFetch(`/api/v2/users/${userId}/enable`,  { method: "POST" });
+      if (!enabled && u.is_enabled)  await apiFetch(`/api/v2/users/${userId}/disable`, { method: "POST" });
+    }
+
+    await Promise.all([
+      ...toAdd.map((tid)    => apiFetch(`/api/v2/users/${userId}/tags`,        { method: "POST",   body: JSON.stringify({ tag_id: tid }) })),
+      ...toRemove.map((tid) => apiFetch(`/api/v2/users/${userId}/tags/${tid}`, { method: "DELETE" })),
+    ]);
+
+    closeUserModal();
+    await loadUsers();
+  } catch (err) {
+    alert("[ERROR] Save failed: " + err.message);
+  }
+}
+
+async function uemSubmitChangePassword() {
+  const current  = document.getElementById("uemCpCurrentPw")?.value || "";
+  const newPw    = document.getElementById("uemCpNewPw")?.value || "";
+  const confirm2 = document.getElementById("uemCpConfirmPw")?.value || "";
+  const errEl    = document.getElementById("uemCpError");
+  function showErr(msg) { if (errEl) { errEl.textContent = msg; errEl.style.display = "block"; } else alert(msg); }
+  if (newPw.length < 12) { showErr("New password must be at least 12 characters."); return; }
+  if (newPw !== confirm2) { showErr("Passwords do not match."); return; }
+  try {
+    await apiFetch("/api/v2/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password: current, new_password: newPw }),
+    });
+    closeUserModal();
+    const banner = document.getElementById("breakGlassBanner");
+    if (banner) banner.style.display = "none";
+    alert("Password updated successfully.");
+  } catch (err) { showErr("[ERROR] " + err.message); }
 }
 
 function showCreateUserForm() {

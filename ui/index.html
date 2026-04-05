@@ -724,6 +724,69 @@
         </div>
       </div>
 
+      <!-- User edit modal -->
+      <div id="userEditModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px">
+        <div style="background:#2c2c2c;border:1px solid #3d3d3d;border-radius:8px;padding:28px;width:480px;max-width:100%">
+          <h3 id="uem-title" style="margin:0 0 16px;color:#fff;font-size:1.1rem"></h3>
+          <!-- read-only info -->
+          <div id="uem-static" style="display:grid;grid-template-columns:80px 1fr;gap:5px 12px;margin-bottom:18px;font-size:12px"></div>
+          <!-- edit fields -->
+          <div style="display:grid;gap:12px;margin-bottom:16px">
+            <div class="form-group">
+              <label style="font-size:12px;color:#aaa;display:block;margin-bottom:5px">Alias</label>
+              <input type="text" id="uem-aka" class="search-input" style="width:100%" placeholder="Optional alias" />
+            </div>
+            <div class="form-group" id="uem-role-group">
+              <label style="font-size:12px;color:#aaa;display:block;margin-bottom:5px">Role</label>
+              <select id="uem-role" class="search-input" style="width:100%">
+                <option value="admin">admin</option>
+                <option value="contributor">contributor</option>
+                <option value="reader">reader</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer">
+                <input type="checkbox" id="uem-enabled"> Enabled
+              </label>
+            </div>
+            <div class="form-group">
+              <label style="font-size:12px;color:#aaa;display:block;margin-bottom:6px">Workspaces</label>
+              <div id="uem-workspaces" style="padding:8px;background:#1e1e1e;border-radius:6px;max-height:140px;overflow-y:auto"></div>
+            </div>
+            <div class="form-group">
+              <label style="font-size:12px;color:#aaa;display:block;margin-bottom:6px">Tags</label>
+              <div id="uem-tags" style="padding:8px;background:#1e1e1e;border-radius:6px;max-height:140px;overflow-y:auto"></div>
+            </div>
+          </div>
+          <!-- Change password section (break glass only) -->
+          <div id="uem-chpw" style="display:none;border-top:1px solid #3d3d3d;padding-top:16px;margin-bottom:16px">
+            <p style="font-size:12px;color:#aaa;margin:0 0 12px">Change Break Glass Password</p>
+            <div class="form-group" style="margin-bottom:10px">
+              <label style="font-size:12px;color:#aaa;display:block;margin-bottom:5px">Current password</label>
+              <input type="password" id="uemCpCurrentPw" class="search-input" style="width:100%" placeholder="Current password" />
+            </div>
+            <div class="form-group" style="margin-bottom:10px">
+              <label style="font-size:12px;color:#aaa;display:block;margin-bottom:5px">New password (min 12 chars)</label>
+              <input type="password" id="uemCpNewPw" class="search-input" style="width:100%" placeholder="New password" />
+            </div>
+            <div class="form-group" style="margin-bottom:10px">
+              <label style="font-size:12px;color:#aaa;display:block;margin-bottom:5px">Confirm new password</label>
+              <input type="password" id="uemCpConfirmPw" class="search-input" style="width:100%" placeholder="Confirm password" />
+            </div>
+            <div id="uemCpError" style="color:#f44336;font-size:12px;margin-bottom:10px;display:none"></div>
+            <button class="btn btn-primary" style="width:100%" onclick="uemSubmitChangePassword()">Update Password</button>
+          </div>
+          <!-- Footer actions -->
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+            <button id="uem-delete-btn" class="btn btn-danger btn-sm" onclick="closeUserModal();deleteUser(_editingUserId)">Delete user</button>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-secondary" onclick="closeUserModal()">Cancel</button>
+              <button class="btn btn-primary" onclick="saveUserEdits()">Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div id="page-admin" class="page">
         <div class="page-header">
           <h1>Admin</h1>
