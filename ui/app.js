@@ -12,6 +12,45 @@ const REFRESH_INTERVAL = 15000; // 15 seconds
 let allScripts = [];
 let refreshTimer = null;
 
+// Auth state
+let _currentUser = null;
+let _morganaJWT  = localStorage.getItem("morgana_jwt") || null;
+
+// Verify JWT on startup; redirect to login if missing / expired
+async function initAuth() {
+  if (sessionStorage.getItem("morgana_pw_warning")) {
+    sessionStorage.removeItem("morgana_pw_warning");
+    setTimeout(() => {
+      const el = document.getElementById("breakGlassBanner");
+      if (el) el.style.display = "block";
+    }, 500);
+  }
+  if (!_morganaJWT) { window.location.replace("/ui/login.html"); return; }
+  try {
+    const resp = await fetch(API_BASE + "/api/v2/auth/me", {
+      headers: { "Authorization": "Bearer " + _morganaJWT },
+    });
+    if (!resp.ok) throw new Error("Unauthorized");
+    _currentUser = await resp.json();
+    if (_currentUser.default_password_warning) {
+      const el = document.getElementById("breakGlassBanner");
+      if (el) el.style.display = "block";
+    }
+  } catch (_) {
+    localStorage.removeItem("morgana_jwt");
+    window.location.replace("/ui/login.html");
+  }
+}
+
+function logOut() {
+  if (!confirm('Log out?')) return;
+  localStorage.removeItem('morgana_jwt');
+  localStorage.removeItem('morgana_api_key');
+  _morganaJWT = null;
+  _currentUser = null;
+  window.location.replace('/ui/login.html');
+}
+
 // Chain builder state
 let _allChains = [];
 let _allCampaigns = [];
@@ -90,9 +129,15 @@ async function apiFetch(path, options = {}) {
     headers: {
       "KEY": API_KEY,
       "Content-Type": "application/json",
+      ...(_morganaJWT ? { "Authorization": "Bearer " + _morganaJWT } : {}),
       ...(options.headers || {}),
     },
   });
+  if (resp.status === 401) {
+    localStorage.removeItem("morgana_jwt");
+    window.location.replace("/ui/login.html");
+    throw new Error("Session expired");
+  }
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   if (resp.status === 204 || resp.headers.get("content-length") === "0") return null;
   return resp.json();
@@ -1513,38 +1558,63 @@ async function checkActiveWorkspace() {
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
+// -- Users ------------------------------------------------------------------
+
 async function loadUsers() {
   const tbody = document.getElementById("usersTableBody");
-  if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty-row">Loading...</td></tr>`;
+  if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="empty-row">Loading...</td></tr>`;
   try {
     const data = await apiFetch("/api/v2/users");
-    const users = data.users || data || [];
+    const users = Array.isArray(data) ? data : (data.users || []);
     renderUsersTable(users);
+    // Show break glass warning if flagged
+    const bg = users.find((u) => u.is_break_glass);
+    if (bg && bg.default_password_warning) {
+      const el = document.getElementById("breakGlassBanner");
+      if (el) el.style.display = "block";
+    }
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty-row">[ERROR] ${escHtml(err.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="empty-row">[ERROR] ${escHtml(err.message)}</td></tr>`;
   }
+}
+
+function _wsLabel(workspaces) {
+  try {
+    const arr = Array.isArray(workspaces) ? workspaces : JSON.parse(workspaces || "[]");
+    if (!arr.length || arr[0] === "__ALL__") return "<span style=\"color:var(--text-secondary)\">All</span>";
+    return escHtml(arr.join(", "));
+  } catch (_) { return "?"; }
 }
 
 function renderUsersTable(users) {
   const tbody = document.getElementById("usersTableBody");
   if (!tbody) return;
   if (!users.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-row">No users yet.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-row">No users yet.</td></tr>`;
     return;
   }
-  tbody.innerHTML = users.map((u) => `
-    <tr>
-      <td>${escHtml(u.name || "")}</td>
+  tbody.innerHTML = users.map((u) => {
+    const isBreakGlass = u.is_break_glass || false;
+    const roleColor = u.role === "admin" ? "#f59e0b" : u.role === "reader" ? "#aaa" : "var(--text-primary)";
+    const tagBadges = (u.tags || []).map((t) =>
+      `<span class="tag-badge" style="background:${escHtml(t.color || "#667eea")}">${escHtml(t.label || "")}</span>`
+    ).join("");
+    const actions = isBreakGlass
+      ? `<button class="btn btn-secondary btn-sm" onclick="showChangePasswordModal()">Chg.Pw</button>`
+      : `<button class="btn btn-sm" style="background:${u.is_enabled ? "var(--danger)" : "var(--success)"}" onclick="${u.is_enabled ? "disableUser" : "enableUser"}('${escHtml(String(u.id))}')">${u.is_enabled ? "Disable" : "Enable"}</button>
+         <button class="btn btn-danger btn-sm" onclick="deleteUser('${escHtml(String(u.id))}')">Del</button>`;
+    return `<tr>
+      <td>${escHtml(u.name || "")}${isBreakGlass ? " <span title=\"Break Glass\" style=\"color:#f59e0b;font-size:11px\">[BG]</span>" : ""}</td>
       <td style="font-size:12px">${escHtml(u.email || "")}</td>
       <td style="opacity:.7">${escHtml(u.aka || "")}</td>
-      <td>${u.is_admin ? '<span style="color:#f59e0b">Admin</span>' : "User"}</td>
-      <td>${u.is_active
-        ? '<span style="color:#10b981">Active</span>'
-        : '<span style="color:#ef4444">Inactive</span>'}</td>
-      <td style="font-size:11px;opacity:.6">${u.last_login ? new Date(u.last_login).toLocaleString() : "Never"}</td>
-      <td><button class="btn btn-danger btn-sm" onclick="deleteUser('${escHtml(String(u.id))}')">Delete</button></td>
-    </tr>
-  `).join("");
+      <td><span style="color:${roleColor}">${escHtml(u.role || "?")}</span></td>
+      <td style="font-size:12px;opacity:.8">${escHtml(u.auth_provider || "local")}</td>
+      <td>${u.is_enabled ? "<span style=\"color:#10b981\">Yes</span>" : "<span style=\"color:#ef4444\">No</span>"}</td>
+      <td style="font-size:11px">${_wsLabel(u.workspaces || "[]")}</td>
+      <td>${tagBadges || "<span style=\"opacity:.4\">-</span>"}</td>
+      <td style="white-space:nowrap">${actions}</td>
+    </tr>`;
+  }).join("");
 }
 
 function showCreateUserForm() {
@@ -1555,33 +1625,52 @@ function showCreateUserForm() {
 function hideCreateUserForm() {
   const el = document.getElementById("userCreateCard");
   if (el) el.style.display = "none";
-  ["userName","userEmail","userAka","userPassword"].forEach((id) => {
-    const e = document.getElementById(id);
-    if (e) e.value = "";
+  ["userName","userEmail","userAka","userPassword","userWorkspaces"].forEach((id) => {
+    const e = document.getElementById(id); if (e) e.value = "";
   });
-  const adminEl = document.getElementById("userIsAdmin");
-  if (adminEl) adminEl.checked = false;
+  const roleEl = document.getElementById("userRole"); if (roleEl) roleEl.value = "contributor";
+  const provEl = document.getElementById("userAuthProvider"); if (provEl) provEl.value = "local";
 }
 
 async function createUser() {
-  const name = (document.getElementById("userName")?.value || "").trim();
-  const email = (document.getElementById("userEmail")?.value || "").trim();
-  const aka = (document.getElementById("userAka")?.value || "").trim();
+  const name     = (document.getElementById("userName")?.value || "").trim();
+  const email    = (document.getElementById("userEmail")?.value || "").trim();
+  const aka      = (document.getElementById("userAka")?.value || "").trim();
   const password = (document.getElementById("userPassword")?.value || "");
-  const is_admin = document.getElementById("userIsAdmin")?.checked || false;
-  if (!name) { alert("Name is required."); return; }
+  const role     = document.getElementById("userRole")?.value || "contributor";
+  const auth_provider = document.getElementById("userAuthProvider")?.value || "local";
+  const wsRaw    = (document.getElementById("userWorkspaces")?.value || "").trim();
+  const workspaces = wsRaw ? wsRaw.split(",").map((s) => s.trim()).filter(Boolean) : ["__ALL__"];
+  if (!name)  { alert("Name is required."); return; }
   if (!email) { alert("Email is required."); return; }
-  if (!password || password.length < 8) { alert("Password must be at least 8 characters."); return; }
+  if (auth_provider === "local" && password && password.length < 8) {
+    alert("Password must be at least 8 characters."); return;
+  }
   try {
     await apiFetch("/api/v2/users", {
       method: "POST",
-      body: JSON.stringify({ name, email, aka: aka || null, password, is_admin }),
+      body: JSON.stringify({ name, email, aka: aka || null, password: password || undefined, role, auth_provider, workspaces }),
     });
     hideCreateUserForm();
     await loadUsers();
   } catch (err) {
     alert("Create user failed: " + err.message);
   }
+}
+
+async function enableUser(userId) {
+  try {
+    await apiFetch(`/api/v2/users/${userId}/enable`, { method: "POST" });
+    await loadUsers();
+  } catch (err) { alert("Enable failed: " + err.message); }
+}
+
+async function disableUser(userId) {
+  if (!confirm("Disable this user?")) return;
+  try {
+    await apiFetch(`/api/v2/users/${userId}/disable`, { method: "POST" });
+    await loadUsers();
+  } catch (err) { alert("Disable failed: " + err.message); }
 }
 
 async function deleteUser(userId) {
@@ -1592,6 +1681,40 @@ async function deleteUser(userId) {
   } catch (err) {
     alert("Delete failed: " + err.message);
   }
+}
+
+// -- Break glass password change ---------------------------------------------
+
+function showChangePasswordModal() {
+  const m = document.getElementById("changePwModal");
+  if (!m) return;
+  m.style.display = "flex";
+  ["cpCurrentPw","cpNewPw","cpConfirmPw"].forEach((id) => { const e = document.getElementById(id); if (e) e.value = ""; });
+  const err = document.getElementById("cpError"); if (err) err.style.display = "none";
+}
+
+function hideChangePasswordModal() {
+  const m = document.getElementById("changePwModal"); if (m) m.style.display = "none";
+}
+
+async function submitChangePassword() {
+  const current  = document.getElementById("cpCurrentPw")?.value || "";
+  const newPw    = document.getElementById("cpNewPw")?.value || "";
+  const confirm2 = document.getElementById("cpConfirmPw")?.value || "";
+  const errEl    = document.getElementById("cpError");
+  function showCpError(msg) { if (errEl) { errEl.textContent = msg; errEl.style.display = "block"; } else alert(msg); }
+  if (newPw.length < 12) { showCpError("New password must be at least 12 characters."); return; }
+  if (newPw !== confirm2) { showCpError("Passwords do not match."); return; }
+  try {
+    await apiFetch("/api/v2/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password: current, new_password: newPw }),
+    });
+    hideChangePasswordModal();
+    const banner = document.getElementById("breakGlassBanner");
+    if (banner) banner.style.display = "none";
+    alert("Password updated successfully.");
+  } catch (err) { showCpError("Failed: " + err.message); }
 }
 
 // Load tags for a table-row cell (inline, non-blocking)
@@ -3330,6 +3453,7 @@ function _campWalkAndModifyParallel(nodes, parallelNodeId, fn) {
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 
 (function init() {
+  initAuth();
   checkHealth();
   refreshDashboard();
   checkActiveWorkspace();

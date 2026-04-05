@@ -51,6 +51,28 @@ class Settings:
     hmac_secret: str = os.getenv("MORGANA_HMAC_SECRET", "change-this-in-production-please")
     token_expire_days: int = int(os.getenv("MORGANA_TOKEN_EXPIRE_DAYS", "365"))
     secret_key: str = os.getenv("MORGANA_SECRET_KEY", "morgana-jwt-secret-change-in-production")
+    jwt_expire_hours: int = int(os.getenv("MORGANA_JWT_EXPIRE_HOURS", "24"))
+
+    # OAuth2 - Google
+    oauth_google_client_id:     str = os.getenv("MORGANA_GOOGLE_CLIENT_ID", "")
+    oauth_google_client_secret: str = os.getenv("MORGANA_GOOGLE_CLIENT_SECRET", "")
+
+    # OAuth2 - GitHub
+    oauth_github_client_id:     str = os.getenv("MORGANA_GITHUB_CLIENT_ID", "")
+    oauth_github_client_secret: str = os.getenv("MORGANA_GITHUB_CLIENT_SECRET", "")
+
+    # OAuth2 - Microsoft (Azure AD)
+    oauth_microsoft_client_id:     str = os.getenv("MORGANA_MICROSOFT_CLIENT_ID", "")
+    oauth_microsoft_client_secret: str = os.getenv("MORGANA_MICROSOFT_CLIENT_SECRET", "")
+    oauth_microsoft_tenant:        str = os.getenv("MORGANA_MICROSOFT_TENANT", "common")
+
+    # Enterprise OIDC SSO
+    oidc_client_id:     str = os.getenv("MORGANA_OIDC_CLIENT_ID", "")
+    oidc_client_secret: str = os.getenv("MORGANA_OIDC_CLIENT_SECRET", "")
+    oidc_issuer_url:    str = os.getenv("MORGANA_OIDC_ISSUER", "")  # e.g. https://accounts.google.com or https://login.microsoftonline.com/{tenant}/v2.0
+
+    # Public base URL for OAuth redirect URIs (auto-detects from request if empty)
+    oauth_public_url: str = os.getenv("MORGANA_PUBLIC_URL", "")
 
 
 settings = Settings()

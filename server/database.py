@@ -39,7 +39,7 @@ Base = declarative_base()
 
 def init_db():
     """Create all tables and apply lightweight migrations."""
-    from models import script, chain, chain_execution, agent, test, campaign, campaign_execution, job, tag, api_key  # noqa: F401 - import to register models
+    from models import script, chain, chain_execution, agent, test, campaign, campaign_execution, job, tag, api_key, user  # noqa: F401
     Base.metadata.create_all(bind=engine)
     _migrate()
     _seed()
@@ -47,6 +47,11 @@ def init_db():
 
 def _seed():
     """Ensure system records exist (idempotent)."""
+    _seed_adhoc_script()
+    _seed_break_glass()
+
+
+def _seed_adhoc_script():
     from models.script import Script as ScriptModel
     db = SessionLocal()
     try:
@@ -68,15 +73,59 @@ def _seed():
         db.close()
 
 
+def _seed_break_glass():
+    """
+    Ensure admin@admin.com break glass account exists.
+    - Created with default password 'admin' (bcrypt).
+    - Role: admin, provider: local, is_enabled: True.
+    - Never disabled and always shown first in user lists.
+    """
+    import bcrypt as _bc
+    from models.user import User, BREAK_GLASS_EMAIL, DEFAULT_BREAK_GLASS_PASSWORD
+
+    db = SessionLocal()
+    try:
+        existing = db.query(User).filter(User.email == BREAK_GLASS_EMAIL).first()
+        if not existing:
+            pw_hash = _bc.hashpw(DEFAULT_BREAK_GLASS_PASSWORD.encode(), _bc.gensalt(rounds=12)).decode()
+            bg = User(
+                name          = "Break Glass Admin",
+                email         = BREAK_GLASS_EMAIL,
+                password_hash = pw_hash,
+                role          = "admin",
+                auth_provider = "local",
+                is_enabled    = True,
+                workspaces    = '["__ALL__"]',
+            )
+            db.add(bg)
+            db.commit()
+            print(f"[SEED] Break glass account created: {BREAK_GLASS_EMAIL}")
+    except Exception as exc:
+        db.rollback()
+        print(f"[WARN] Seed break glass: {exc}")
+    finally:
+        db.close()
+
+
 def _migrate():
     """Add new nullable columns to existing tables (idempotent)."""
     migrations = [
-        ("agents",    "alias",       "TEXT"),
-        ("chains",    "flow_json",   "TEXT"),
-        ("chains",    "agent_paw",   "TEXT"),
-        ("campaigns", "flow_json",   "TEXT"),
-        ("campaigns", "agent_paw",   "TEXT"),
-        ("campaigns", "updated_at",  "TEXT"),
+        # Existing
+        ("agents",    "alias",            "TEXT"),
+        ("chains",    "flow_json",        "TEXT"),
+        ("chains",    "agent_paw",        "TEXT"),
+        ("campaigns", "flow_json",        "TEXT"),
+        ("campaigns", "agent_paw",        "TEXT"),
+        ("campaigns", "updated_at",       "TEXT"),
+        # User table: new auth/role/visibility columns
+        ("users",     "role",             "TEXT DEFAULT 'contributor'"),
+        ("users",     "auth_provider",    "TEXT DEFAULT 'local'"),
+        ("users",     "provider_user_id", "TEXT"),
+        ("users",     "is_enabled",       "INTEGER DEFAULT 1"),
+        ("users",     "workspaces",       "TEXT DEFAULT '[\"__ALL__\"]'"),
+        ("users",     "updated_at",       "TEXT"),
+        # password_hash was NOT NULL in old schema; SQLite doesn't allow ALTER COLUMN;
+        # new rows created by ORM will have it as NULL (fine for OAuth accounts)
     ]
     with engine.connect() as conn:
         for table, col, col_type in migrations:

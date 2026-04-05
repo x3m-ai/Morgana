@@ -239,6 +239,20 @@ async def health():
     return {"status": "ok", "version": settings.version}
 
 
+@app.get("/login")
+async def login_page():
+    """Convenience redirect: /login -> /ui/login.html"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/ui/login.html", status_code=302)
+
+
+@app.get("/")
+async def root_redirect():
+    """Root redirect to UI dashboard."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/ui/", status_code=302)
+
+
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",

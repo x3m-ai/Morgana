@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Morgana - Sign In</title>
+  <style>
+    :root {
+      --bg-base:      #1a1a1a;
+      --bg-card:      #2c2c2c;
+      --bg-input:     #3a3a3a;
+      --text-primary: #ffffff;
+      --text-secondary: #aaaaaa;
+      --accent:       #667eea;
+      --accent-hover: #5a6fd6;
+      --danger:       #f44336;
+      --warning:      #ff9800;
+      --border:       #3d3d3d;
+      --border-radius: 8px;
+      --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg-base);
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+      font-size: 14px;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .login-container {
+      width: 380px;
+      padding: 40px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--border-radius);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+
+    .brand {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    .brand-logo {
+      font-size: 36px;
+      font-weight: 700;
+      color: #e53935;
+      letter-spacing: 2px;
+    }
+
+    .brand-tagline {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .error-banner {
+      background: rgba(244, 67, 54, 0.15);
+      border: 1px solid var(--danger);
+      border-radius: var(--border-radius);
+      color: #ff6b6b;
+      padding: 10px 14px;
+      font-size: 13px;
+      margin-bottom: 20px;
+      display: none;
+    }
+
+    .warning-banner {
+      background: rgba(255, 152, 0, 0.15);
+      border: 1px solid var(--warning);
+      border-radius: var(--border-radius);
+      color: #ffb74d;
+      padding: 10px 14px;
+      font-size: 13px;
+      margin-bottom: 20px;
+      display: none;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--border-radius);
+      color: var(--text-primary);
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .form-group input:focus {
+      border-color: var(--accent);
+    }
+
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 11px;
+      border: none;
+      border-radius: var(--border-radius);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, opacity 0.2s;
+      text-align: center;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      margin-top: 4px;
+    }
+
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-oauth {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      justify-content: center;
+    }
+
+    .btn-oauth:hover { background: #444; border-color: var(--accent); }
+
+    .divider {
+      display: flex;
+      align-items: center;
+      margin: 22px 0;
+      gap: 10px;
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+
+    .divider::before,
+    .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .oauth-section { display: none; }
+    .oauth-section.has-providers { display: block; }
+
+    #spinner {
+      display: none;
+      text-align: center;
+      color: var(--text-secondary);
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    .footer-note {
+      text-align: center;
+      margin-top: 24px;
+      font-size: 11px;
+      color: var(--text-muted, #555);
+    }
+
+    /* SVG icons */
+    .icon { width: 18px; height: 18px; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+
+<div class="login-container">
+  <div class="brand">
+    <div class="brand-logo">MORGANA</div>
+    <div class="brand-tagline">Red Team Platform - X3M.AI</div>
+  </div>
+
+  <div class="error-banner" id="errorBanner"></div>
+  <div class="warning-banner" id="warningBanner"></div>
+
+  <!-- Local / Break Glass login form -->
+  <form id="loginForm" autocomplete="on">
+    <div class="form-group">
+      <label for="emailInput">Email</label>
+      <input type="email" id="emailInput" name="email" placeholder="admin@admin.com" required autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label for="passwordInput">Password</label>
+      <input type="password" id="passwordInput" name="password" placeholder="Password" required autocomplete="current-password">
+    </div>
+    <button type="submit" class="btn btn-primary" id="loginBtn">Sign In</button>
+    <div id="spinner">Signing in...</div>
+  </form>
+
+  <!-- OAuth providers -->
+  <div class="oauth-section" id="oauthSection">
+    <div class="divider">or continue with</div>
+    <div id="oauthButtons"></div>
+  </div>
+
+  <div class="footer-note">
+    Morgana v<span id="versionLabel">...</span> &mdash; Zero data collection &bull; All local
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var BASE = "";  // same origin
+
+  // ------------------------------------------------------------------
+  // Check if already logged in: JWT in URL fragment or localStorage
+  // ------------------------------------------------------------------
+  (function checkExistingAuth() {
+    // Handle OAuth callback redirect: /ui/login.html#token=JWT
+    var hash = window.location.hash;
+    if (hash && hash.startsWith("#token=")) {
+      var jwt = hash.slice(7);
+      if (jwt) {
+        localStorage.setItem("morgana_jwt", jwt);
+        window.location.replace("/ui/");
+        return;
+      }
+    }
+    // Already logged in?
+    var existing = localStorage.getItem("morgana_jwt");
+    if (existing) {
+      verifyAndRedirect(existing);
+    }
+  })();
+
+  function verifyAndRedirect(jwt) {
+    fetch(BASE + "/api/v2/auth/me", {
+      headers: { "Authorization": "Bearer " + jwt }
+    }).then(function (r) {
+      if (r.ok) { window.location.replace("/ui/"); }
+    }).catch(function () { /* ignore, show login form */ });
+  }
+
+  // ------------------------------------------------------------------
+  // Load providers from server
+  // ------------------------------------------------------------------
+  function loadProviders() {
+    fetch(BASE + "/api/v2/auth/providers")
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var providers = data.providers || [];
+        var container = document.getElementById("oauthButtons");
+        var section   = document.getElementById("oauthSection");
+        if (!providers.length) return;
+
+        var icons = {
+          google:    '<svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M21.8 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.5c-.2 1.2-.9 2.2-2 2.9v2.4h3.2c1.9-1.7 3-4.3 3-7.1z" fill="#4285F4"/><path d="M12 22c2.7 0 5-0.9 6.6-2.4l-3.2-2.4c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.2H3.1v2.4C4.7 19.9 8.1 22 12 22z" fill="#34A853"/><path d="M6.4 13.9c-.2-.6-.3-1.2-.3-1.9s.1-1.3.3-1.9V7.7H3.1A9.9 9.9 0 0 0 2 12c0 1.6.4 3.1 1.1 4.4l3.3-2.5z" fill="#FBBC05"/><path d="M12 5.9c1.5 0 2.8.5 3.8 1.5l2.8-2.8C16.9 2.9 14.7 2 12 2 8.1 2 4.7 4.1 3.1 7.6l3.3 2.5C7.2 7.6 9.4 5.9 12 5.9z" fill="#EA4335"/></svg>',
+          github:    '<svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12c0 4.4 2.9 8.2 6.8 9.5.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.8.8.1-.6.3-1.1.6-1.3-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.7 1 .8-.2 1.6-.3 2.4-.3s1.6.1 2.4.3c1.9-1.3 2.7-1 2.7-1 .5 1.4.2 2.4.1 2.7.7.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9V21c0 .3.2.6.7.5C19.1 20.2 22 16.4 22 12c0-5.5-4.5-10-10-10z"/></svg>',
+          microsoft:'<svg class="icon" viewBox="0 0 24 24"><rect x="2" y="2" width="9" height="9" fill="#F25022"/><rect x="13" y="2" width="9" height="9" fill="#7FBA00"/><rect x="2" y="13" width="9" height="9" fill="#00A4EF"/><rect x="13" y="13" width="9" height="9" fill="#FFB900"/></svg>',
+          oidc:      '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>',
+        };
+
+        var labels = {
+          google:    "Sign in with Google",
+          github:    "Sign in with GitHub",
+          microsoft: "Sign in with Microsoft",
+          oidc:      "Sign in with Enterprise SSO",
+        };
+
+        providers.forEach(function (p) {
+          var btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "btn btn-oauth";
+          btn.innerHTML = (icons[p] || "") + (labels[p] || "Sign in with " + p);
+          btn.addEventListener("click", function () {
+            window.location.href = BASE + "/api/v2/auth/oauth/" + p;
+          });
+          container.appendChild(btn);
+        });
+
+        section.classList.add("has-providers");
+      })
+      .catch(function () { /* server not yet ready, ignore */ });
+  }
+
+  // ------------------------------------------------------------------
+  // Load version
+  // ------------------------------------------------------------------
+  function loadVersion() {
+    fetch(BASE + "/health")
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var el = document.getElementById("versionLabel");
+        if (el && d.version) el.textContent = d.version;
+      }).catch(function () {});
+  }
+
+  // ------------------------------------------------------------------
+  // Show error from ?error= query param (set by OAuth callback on failure)
+  // ------------------------------------------------------------------
+  (function checkQueryError() {
+    var params = new URLSearchParams(window.location.search);
+    var err = params.get("error");
+    if (err) showError(decodeURIComponent(err));
+  })();
+
+  function showError(msg) {
+    var el = document.getElementById("errorBanner");
+    el.textContent = "ERROR: " + msg;
+    el.style.display = "block";
+  }
+
+  function showWarning(msg) {
+    var el = document.getElementById("warningBanner");
+    el.textContent = "WARNING: " + msg;
+    el.style.display = "block";
+  }
+
+  function clearMessages() {
+    document.getElementById("errorBanner").style.display = "none";
+    document.getElementById("warningBanner").style.display = "none";
+  }
+
+  // ------------------------------------------------------------------
+  // Login form submit
+  // ------------------------------------------------------------------
+  document.getElementById("loginForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    clearMessages();
+
+    var email    = document.getElementById("emailInput").value.trim();
+    var password = document.getElementById("passwordInput").value;
+    var btn      = document.getElementById("loginBtn");
+    var spinner  = document.getElementById("spinner");
+
+    btn.disabled = true;
+    spinner.style.display = "block";
+
+    fetch(BASE + "/api/v2/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email, password: password }),
+    })
+      .then(function (r) {
+        return r.json().then(function (body) { return { ok: r.ok, body: body }; });
+      })
+      .then(function (res) {
+        btn.disabled    = false;
+        spinner.style.display = "none";
+
+        if (!res.ok) {
+          showError(res.body.detail || "Authentication failed");
+          return;
+        }
+
+        var jwt = res.body.access_token;
+        localStorage.setItem("morgana_jwt", jwt);
+
+        if (res.body.default_password_warning) {
+          // Store flag so index.html can show banner
+          sessionStorage.setItem("morgana_pw_warning", "1");
+        }
+
+        window.location.replace("/ui/");
+      })
+      .catch(function (err) {
+        btn.disabled    = false;
+        spinner.style.display = "none";
+        showError("Network error — is the server running?");
+        console.error("[LOGIN] fetch error:", err);
+      });
+  });
+
+  // Init
+  loadProviders();
+  loadVersion();
+})();
+</script>
+</body>
+</html>

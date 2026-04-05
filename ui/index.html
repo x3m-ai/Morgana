@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -52,6 +52,8 @@
         <div class="server-status" id="serverStatus">
           <span class="status-dot offline"></span> Connecting...
         </div>
+        <div id="sidebar-user-label" style="font-size:11px;color:var(--text-muted);margin-top:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+        <button class="btn-logout" onclick="logOut()">&#x2192; Log Out</button>
       </div>
     </nav>
 
@@ -623,7 +625,14 @@
           <h1>Users</h1>
           <button class="btn btn-primary" onclick="showCreateUserForm()">+ New User</button>
         </div>
-        <div class="card" id="userCreateCard" class="hidden" style="display:none;margin-bottom:1.2rem">
+
+        <!-- Break glass default-password warning -->
+        <div id="breakGlassBanner" class="alert alert-warning" style="display:none;margin-bottom:1rem;padding:.75rem 1rem;background:rgba(255,152,0,.15);border:1px solid #ff9800;border-radius:6px;color:#ffb74d;font-size:13px">
+          [WARNING] Break glass account <strong>admin@admin.com</strong> is using the default password. <a href="#" onclick="showChangePasswordModal();return false;" style="color:#ffb74d;text-decoration:underline">Change it now</a>.
+        </div>
+
+        <!-- Create user form -->
+        <div class="card" id="userCreateCard" style="display:none;margin-bottom:1.2rem">
           <div class="card-header"><h2>Create User</h2></div>
           <div class="card-body">
             <div class="form-row">
@@ -642,25 +651,75 @@
             </div>
             <div class="form-row" style="margin-top:.5rem">
               <div class="form-group" style="flex:2">
-                <label>Password *</label>
-                <input type="password" id="userPassword" class="search-input" placeholder="Min 8 chars" />
+                <label>Password (local auth)</label>
+                <input type="password" id="userPassword" class="search-input" placeholder="Min 8 chars (leave blank for OAuth)" />
               </div>
-              <label style="display:flex;align-items:center;gap:.3rem;font-size:13px">
-                <input type="checkbox" id="userIsAdmin" /> Admin
-              </label>
+              <div class="form-group" style="flex:1">
+                <label>Role</label>
+                <select id="userRole" class="search-input">
+                  <option value="contributor">Contributor</option>
+                  <option value="reader">Reader</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div class="form-group" style="flex:1">
+                <label>Auth provider</label>
+                <select id="userAuthProvider" class="search-input">
+                  <option value="local">Local</option>
+                  <option value="google">Google</option>
+                  <option value="github">GitHub</option>
+                  <option value="microsoft">Microsoft</option>
+                  <option value="oidc">OIDC SSO</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row" style="margin-top:.5rem">
+              <div class="form-group" style="flex:3">
+                <label>Workspaces (leave blank for all)</label>
+                <input type="text" id="userWorkspaces" class="search-input" placeholder='e.g. ws-id-1,ws-id-2 or leave blank for all workspaces' />
+              </div>
               <button class="btn btn-primary" onclick="createUser()">Create</button>
               <button class="btn btn-secondary" onclick="hideCreateUserForm()">Cancel</button>
             </div>
           </div>
         </div>
+
+        <!-- Users table -->
         <div class="card">
           <div class="card-body">
             <table class="data-table" id="usersTable">
               <thead>
-                <tr><th>Name</th><th>Email</th><th>Alias</th><th>Role</th><th>Active</th><th>Last Login</th><th></th></tr>
+                <tr>
+                  <th>Name</th><th>Email</th><th>Alias</th><th>Role</th>
+                  <th>Provider</th><th>Enabled</th><th>Workspaces</th><th>Tags</th><th></th>
+                </tr>
               </thead>
-              <tbody id="usersTableBody"><tr><td colspan="7" class="empty-row">Loading...</td></tr></tbody>
+              <tbody id="usersTableBody"><tr><td colspan="9" class="empty-row">Loading...</td></tr></tbody>
             </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Change password modal (break glass) -->
+      <div id="changePwModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:none;align-items:center;justify-content:center">
+        <div style="background:#2c2c2c;border:1px solid #3d3d3d;border-radius:8px;padding:28px;width:360px">
+          <h3 style="margin-bottom:16px;color:#fff">Change Break Glass Password</h3>
+          <div class="form-group" style="margin-bottom:12px">
+            <label style="font-size:12px;color:#aaa;display:block;margin-bottom:6px">Current password</label>
+            <input type="password" id="cpCurrentPw" class="search-input" style="width:100%" placeholder="Current password" />
+          </div>
+          <div class="form-group" style="margin-bottom:12px">
+            <label style="font-size:12px;color:#aaa;display:block;margin-bottom:6px">New password (min 12 chars)</label>
+            <input type="password" id="cpNewPw" class="search-input" style="width:100%" placeholder="New password" />
+          </div>
+          <div class="form-group" style="margin-bottom:20px">
+            <label style="font-size:12px;color:#aaa;display:block;margin-bottom:6px">Confirm new password</label>
+            <input type="password" id="cpConfirmPw" class="search-input" style="width:100%" placeholder="Confirm password" />
+          </div>
+          <div id="cpError" style="color:#f44336;font-size:12px;margin-bottom:10px;display:none"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn btn-secondary" onclick="hideChangePasswordModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="submitChangePassword()">Update Password</button>
           </div>
         </div>
       </div>
@@ -1180,6 +1239,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=17"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>
