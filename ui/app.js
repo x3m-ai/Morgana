@@ -2386,6 +2386,18 @@ async function deleteCampaign(id) {
   }
 }
 
+async function deleteAllCampaigns() {
+  if (!confirm("Delete ALL campaigns? This cannot be undone.")) return;
+  try {
+    const all = await apiFetch("/api/v2/campaigns");
+    await Promise.all(all.map((c) => apiFetch(`/api/v2/campaigns/${c.id}`, { method: "DELETE" })));
+    loadCampaigns();
+    alert(`Deleted ${all.length} campaign(s).`);
+  } catch (err) {
+    alert("Delete all failed: " + err.message);
+  }
+}
+
 async function clearCampaignExecutions() {
   if (!confirm("Clear all campaign execution history? This cannot be undone.")) return;
   try {
