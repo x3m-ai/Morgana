@@ -391,12 +391,16 @@ async function loadScripts() {
 
 function renderScripts(scripts) {
   const tbody = document.getElementById("scriptsTableBody");
+  // Reset select-all checkbox
+  const selAll = document.getElementById("scriptSelectAll");
+  if (selAll) selAll.checked = false;
   if (!scripts.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-row">No scripts loaded. Make sure the Atomic Red Team submodule is initialized.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-row">No scripts loaded. Make sure the Atomic Red Team submodule is initialized.</td></tr>`;
     return;
   }
   tbody.innerHTML = scripts.slice(0, 500).map((s) => `
     <tr>
+      <td style="width:32px;text-align:center"><input type="checkbox" class="script-row-cb" value="${escHtml(s.id)}"></td>
       <td><span class="tcode">${escHtml(s.tcode || "?")}</span></td>
       <td>${escHtml(s.name || "?")}</td>
       <td>${escHtml(s.tactic || "-")}</td>
@@ -414,6 +418,10 @@ function renderScripts(scripts) {
   `).join("");
   // Load tags asynchronously for each row (batch, non-blocking)
   scripts.slice(0, 500).forEach((s) => loadEntityTagsInline("script", s.id, `tags-script-${s.id}`));
+}
+
+function toggleSelectAllScripts(masterCb) {
+  document.querySelectorAll(".script-row-cb").forEach((cb) => { cb.checked = masterCb.checked; });
 }
 
 function filterScripts() {
@@ -456,6 +464,35 @@ async function deleteScript(scriptId) {
   } catch (err) {
     alert("Delete failed: " + err.message);
   }
+}
+
+async function deleteSelectedScripts() {
+  const ids = [...document.querySelectorAll(".script-row-cb:checked")].map((cb) => cb.value);
+  if (!ids.length) { alert("No scripts selected."); return; }
+  if (!confirm(`Delete ${ids.length} selected script(s)? This cannot be undone.`)) return;
+  let failed = 0;
+  for (const id of ids) {
+    try {
+      await apiFetch(`/api/v2/scripts/${id}`, { method: "DELETE" });
+      allScripts = allScripts.filter((s) => s.id !== id);
+    } catch { failed++; }
+  }
+  filterScripts();
+  if (failed) alert(`${ids.length - failed} deleted, ${failed} failed.`);
+}
+
+async function deleteAllScripts() {
+  if (!confirm("Delete ALL scripts? This cannot be undone.")) return;
+  const ids = allScripts.map((s) => s.id);
+  let failed = 0;
+  for (const id of ids) {
+    try {
+      await apiFetch(`/api/v2/scripts/${id}`, { method: "DELETE" });
+    } catch { failed++; }
+  }
+  allScripts = [];
+  filterScripts();
+  if (failed) alert(`${ids.length - failed} deleted, ${failed} failed.`);
 }
 
 // Returns the next available " - Copy N" name given a base name and a list of existing names

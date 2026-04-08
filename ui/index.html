@@ -202,6 +202,8 @@
             </select>
             <button class="btn btn-secondary btn-sm" onclick="clearScriptFilters()">Clear</button>
             <button class="btn btn-primary" onclick="openNewScriptModal()">+ New Script</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteSelectedScripts()">Delete Selected</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteAllScripts()">Delete All</button>
           </div>
         </div>
         <div class="card">
@@ -209,6 +211,7 @@
             <table class="data-table" id="scriptsTable">
               <thead>
                 <tr>
+                  <th style="width:32px"><input type="checkbox" id="scriptSelectAll" onclick="toggleSelectAllScripts(this)" title="Select all"></th>
                   <th>TCode</th>
                   <th>Name</th>
                   <th>Tactic</th>
@@ -220,7 +223,7 @@
                 </tr>
               </thead>
               <tbody id="scriptsTableBody">
-                <tr><td colspan="8" class="empty-row">Loading...</td></tr>
+                <tr><td colspan="9" class="empty-row">Loading...</td></tr>
               </tbody>
             </table>
           </div>
