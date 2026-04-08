@@ -6,7 +6,7 @@
 "use strict";
 
 const API_BASE = window.location.origin;
-const API_KEY = localStorage.getItem("morgana_api_key") || "MORGANA_ADMIN_KEY";
+const API_KEY = localStorage.getItem("morgana_api_key") || "";
 const REFRESH_INTERVAL = 15000; // 15 seconds
 
 let allScripts = [];
@@ -14,21 +14,24 @@ let refreshTimer = null;
 
 // Auth state
 let _currentUser = null;
-let _cachedUsers  = [];
 let _morganaJWT  = localStorage.getItem("morgana_jwt") || null;
-let _editingUserId   = null;
-let _editingUserTagIds = [];
 
-// Verify JWT on startup; redirect to login if missing / expired
+// Initialise auth: verify JWT, redirect to login if missing
 async function initAuth() {
+  // Pick up token from sessionStorage password-change warning flag
   if (sessionStorage.getItem("morgana_pw_warning")) {
     sessionStorage.removeItem("morgana_pw_warning");
+    // Show banner once users page loads
     setTimeout(() => {
       const el = document.getElementById("breakGlassBanner");
       if (el) el.style.display = "block";
     }, 500);
   }
-  if (!_morganaJWT) { window.location.replace("/ui/login.html"); return; }
+
+  if (!_morganaJWT) {
+    window.location.replace("/ui/login.html");
+    return;
+  }
   try {
     const resp = await fetch(API_BASE + "/api/v2/auth/me", {
       headers: { "Authorization": "Bearer " + _morganaJWT },
@@ -39,19 +42,26 @@ async function initAuth() {
       const el = document.getElementById("breakGlassBanner");
       if (el) el.style.display = "block";
     }
+    // Show logged-in user label in sidebar
+    const userLabel = document.getElementById("sidebar-user-label");
+    if (userLabel && _currentUser) {
+      userLabel.textContent = _currentUser.aka || _currentUser.email || "";
+      userLabel.title = _currentUser.email || "";
+    }
   } catch (_) {
+    // Token invalid or expired
     localStorage.removeItem("morgana_jwt");
     window.location.replace("/ui/login.html");
   }
 }
 
 function logOut() {
-  if (!confirm('Log out?')) return;
-  localStorage.removeItem('morgana_jwt');
-  localStorage.removeItem('morgana_api_key');
+  if (!confirm("Log out?")) return;
+  localStorage.removeItem("morgana_jwt");
+  localStorage.removeItem("morgana_api_key");
   _morganaJWT = null;
   _currentUser = null;
-  window.location.replace('/ui/login.html');
+  window.location.replace("/ui/login.html");
 }
 
 // Chain builder state
@@ -98,7 +108,6 @@ function navigateTo(page) {
     case "chains":    loadChains();          break;
     case "campaigns": loadCampaigns();       break;
     case "tags":      loadTags();            break;
-    case "users":     loadUsers();           break;
     case "admin":     loadAdminStatus();     break;
   }
 }
@@ -124,19 +133,22 @@ async function checkHealth() {
   }
 }
 
-// ─── API helpers ─────────────────────────────────────────────────────────────
+// ─── API helpers (with JWT Bearer auth) ─────────────────────────────────────
 
 async function apiFetch(path, options = {}) {
+  const authHeaders = {};
+  if (_morganaJWT) authHeaders["Authorization"] = "Bearer " + _morganaJWT;
   const resp = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       "KEY": API_KEY,
       "Content-Type": "application/json",
-      ...(_morganaJWT ? { "Authorization": "Bearer " + _morganaJWT } : {}),
+      ...authHeaders,
       ...(options.headers || {}),
     },
   });
   if (resp.status === 401) {
+    // Session expired — redirect to login
     localStorage.removeItem("morgana_jwt");
     window.location.replace("/ui/login.html");
     throw new Error("Session expired");
@@ -247,7 +259,7 @@ async function loadAgents() {
         <td>${stateBadge(a.status)}</td>
         <td>${fmtDate(a.last_seen)}</td>
         <td><span class="beacon-click" id="beacon-${escHtml(a.paw)}" onclick="editAgentBeacon('${escHtml(a.paw)}', ${a.beacon_interval || 30})" title="Click to change beacon interval">${a.beacon_interval || 30}s</span></td>
-        <td style="white-space:nowrap"><span id="tags-agent-${escHtml(a.paw)}" style="display:inline-flex;flex-wrap:wrap;gap:2px;vertical-align:middle"></span> <button class="btn btn-secondary btn-sm" style="font-size:10px;padding:1px 5px;vertical-align:middle" onclick="openTagPicker('agent','${escHtml(a.paw)}')" title="Assign tags">+</button></td>
+        <td>${a.tags ? escHtml(a.tags) : "-"}</td>
         <td><span class="version-badge" title="Agent version">${escHtml(a.agent_version || "?")}</span></td>
         <td style="white-space:nowrap">
           <button class="btn btn-secondary btn-sm" onclick="openNativeConsole('${escHtml(a.paw)}')" title="Open native terminal window connected to this agent">Console</button>
@@ -256,7 +268,6 @@ async function loadAgents() {
         <td><button class="btn btn-danger btn-sm" onclick="deleteAgent('${escHtml(a.paw)}')" title="Remove agent">x</button></td>
       </tr>`;
     }).join("");
-    agents.forEach((a) => loadEntityTagsInline("agent", a.paw, `tags-agent-${a.paw}`));
   } catch (err) {
     console.error("[AGENTS] Load failed:", err.message);
   }
@@ -306,11 +317,11 @@ async function purgeStaleAgents() {
   }
 }
 
-// Cache last-known server info (populated by loadAdminStatus / showDeployToken)
-let _serverInfo = { ip_address: null, dns_name: "", server_port: 8888 };
+// Cache last-known server info (populated by loadAdminStatus)
+let _serverInfo = { ip_address: null, dns_name: "" };
 
 async function showDeployToken() {
-  // Fetch fresh server info to get the correct IP/DNS for agent one-liners
+  // Ensure we have fresh server info for the install URL
   try {
     const info = await apiFetch("/api/v2/admin/server-info");
     _serverInfo = info;
@@ -318,61 +329,41 @@ async function showDeployToken() {
     console.warn("[DEPLOY] Could not fetch server-info:", err.message);
   }
 
-  let deployToken;
-  try {
-    const resp = await apiFetch("/api/v2/admin/deploy-token", { method: "POST" });
-    deployToken = resp.deploy_token;
-  } catch (err) {
-    alert("[ERROR] Could not generate deploy token: " + err.message);
-    return;
-  }
-
-  // Use DNS if configured, otherwise fall back to server IP, then browser hostname
+  // Determine server host: prefer DNS if configured
   const host = (_serverInfo.dns_name && _serverInfo.dns_name.trim())
     ? _serverInfo.dns_name.trim()
     : (_serverInfo.ip_address || window.location.hostname);
-  const port = _serverInfo.server_port || 8888;
-  const origin = `http://${host}:${port}`;
+  const port = _serverInfo.server_port || window.location.port || 8888;
+  const serverUrl = `http://${host}:${port}`;
 
-  const d = "C:\\ProgramData\\Morgana\\agent";
+  // Generate one-time deploy token from server
+  let token = "DEPLOY_TOKEN";
+  try {
+    const resp = await apiFetch("/api/v2/admin/deploy-token", { method: "POST", body: "{}" });
+    token = resp.deploy_token || token;
+  } catch (err) {
+    console.warn("[DEPLOY] Could not generate deploy token:", err.message);
+  }
 
-  // Windows: true one-liner -- download binary then install NT service (run as Administrator)
-  const winCmd =
-    `$d='${d}';New-Item $d -Force -ItemType Directory|Out-Null;` +
-    `(New-Object Net.WebClient).DownloadFile('${origin}/download/morgana-agent.exe',"$d\\morgana-agent.exe");` +
-    `&"$d\\morgana-agent.exe" install --server ${origin} --token ${deployToken}`;
+  const winCmd = [
+    `# Run as Administrator in PowerShell`,
+    `$server = "${serverUrl}"`,
+    `$token  = "${token}"`,
+    `Invoke-WebRequest -Uri "$server/download/morgana-agent.exe" -OutFile morgana-agent.exe`,
+    `.\\morgana-agent.exe install --server $server --token $token`,
+  ].join("\n");
 
-  // Linux: true one-liner -- download binary then install systemd service (run as root)
-  const linCmd =
-    `curl -sSL '${origin}/download/morgana-agent' -o /tmp/morgana-agent` +
-    ` && chmod +x /tmp/morgana-agent` +
-    ` && sudo /tmp/morgana-agent install --server ${origin} --token ${deployToken}`;
+  const linCmd = [
+    `# Run as root`,
+    `SERVER="${serverUrl}"`,
+    `TOKEN="${token}"`,
+    `curl -fsSL "$SERVER/download/morgana-agent" -o morgana-agent && chmod +x morgana-agent`,
+    `./morgana-agent install --server $SERVER --token $TOKEN`,
+  ].join("\n");
 
   document.getElementById("deploy-win-cmd").textContent = winCmd;
   document.getElementById("deploy-lin-cmd").textContent = linCmd;
   document.getElementById("deployModal").classList.remove("hidden");
-}
-function copyDeployCmd(elId) {
-  const txt = document.getElementById(elId).textContent;
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(txt).then(() => {
-      alert("[OK] Command copied to clipboard.");
-    }).catch(() => _copyFallback(txt));
-  } else {
-    _copyFallback(txt);
-  }
-}
-
-function _copyFallback(txt) {
-  const ta = document.createElement("textarea");
-  ta.value = txt;
-  ta.style.position = "fixed";
-  ta.style.opacity  = "0";
-  document.body.appendChild(ta);
-  ta.select();
-  document.execCommand("copy");
-  document.body.removeChild(ta);
-  alert("[OK] Command copied to clipboard.");
 }
 
 function closeDeployModal() {
@@ -496,7 +487,6 @@ async function duplicateScript(id) {
         cleanup_command: s.cleanup_command,
         executor: s.executor,
         platform: s.platform,
-        source: "morgana",
       }),
     });
     allScripts = [];
@@ -650,7 +640,7 @@ async function loadAdminStatus() {
   try {
     const data = await apiFetch("/api/v2/admin/atomics/status");
     setVal("admin-atomic-db", data.atomic_scripts_in_db ?? "-");
-    setVal("admin-custom-db", data.morgana_scripts_in_db ?? "-");
+    setVal("admin-custom-db", data.custom_scripts_in_db ?? "-");
     setVal("admin-yaml-disk", data.yaml_files_on_disk ?? "-");
 
     const tbody = document.getElementById("admin-last-run-body");
@@ -672,13 +662,13 @@ async function loadAdminStatus() {
     const input = document.getElementById("apiKeyInput");
     if (input) input.value = API_KEY;
 
-    // Load global settings (beacon default)
-    loadGlobalSettings();
-
     // Load API keys table
     loadApiKeys();
 
-    // Load server info (hostname, IP, DNS, memory, disk)
+    // Load global settings (beacon default)
+    loadGlobalSettings();
+
+    // Load server info
     loadServerInfo();
 
   } catch (err) {
@@ -694,6 +684,7 @@ async function loadServerInfo() {
     setVal("sinfo-hostname", info.hostname || "-");
     setVal("sinfo-platform", (info.platform || "-") + (info.python_version ? " / Py " + info.python_version : ""));
     setVal("sinfo-port", info.server_port || "-");
+    // Memory
     if (info.memory && info.memory.used_pct != null) {
       setVal("sinfo-mem-used", info.memory.used_pct + "%");
       setVal("sinfo-mem-avail", (info.memory.available_gb ?? "-") + " GB");
@@ -701,6 +692,7 @@ async function loadServerInfo() {
       setVal("sinfo-mem-used", info.memory?.note || "-");
       setVal("sinfo-mem-avail", "-");
     }
+    // Disk
     if (info.disk && info.disk.used_pct != null) {
       setVal("sinfo-disk-used", info.disk.used_pct + "%");
       setVal("sinfo-disk-free", (info.disk.free_gb ?? "-") + " GB");
@@ -708,6 +700,7 @@ async function loadServerInfo() {
       setVal("sinfo-disk-used", info.disk?.error || "-");
       setVal("sinfo-disk-free", "-");
     }
+    // Pre-fill DNS input
     const dnsInput = document.getElementById("sinfodns");
     if (dnsInput) dnsInput.value = info.dns_name || "";
   } catch (err) {
@@ -821,103 +814,6 @@ function saveApiKey() {
   location.reload();
 }
 
-// ─── API Key management ───────────────────────────────────────────────────────
-
-let _revealedKey = "";
-
-async function loadApiKeys() {
-  const tbody = document.getElementById("apiKeysTableBody");
-  if (!tbody) return;
-  try {
-    const rows = await apiFetch("/api/v2/api-keys");
-    if (!rows || rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" class="empty-row">No keys yet. Click [+ New Key] to create one.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = rows.map(k => `
-      <tr>
-        <td>${k.name}</td>
-        <td><code style="font-size:.8rem;color:var(--accent-color)">${k.key_prefix}...</code></td>
-        <td style="color:var(--text-muted);font-size:.82rem">${k.created_at}</td>
-        <td><button class="btn btn-danger" style="padding:2px 10px;font-size:.78rem" onclick="deleteApiKey('${k.id}','${k.name.replace(/'/g,'&apos;')}')">Revoke</button></td>
-      </tr>`).join("");
-  } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="4" class="empty-row">[ERROR] ${err.message}</td></tr>`;
-  }
-}
-
-function _showNewKeyModal() {
-  const inp = document.getElementById("newKeyNameInput");
-  if (inp) inp.value = "";
-  const btn = document.getElementById("newKeyCreateBtn");
-  if (btn) { btn.disabled = false; btn.textContent = "Create"; }
-  document.getElementById("newKeyModal").classList.remove("hidden");
-  setTimeout(() => { if (inp) inp.focus(); }, 80);
-}
-
-function _closeNewKeyModal() {
-  document.getElementById("newKeyModal").classList.add("hidden");
-}
-
-async function _createApiKeySubmit() {
-  const name = (document.getElementById("newKeyNameInput").value || "").trim();
-  if (!name) { alert("Enter a name for the key."); return; }
-  const btn = document.getElementById("newKeyCreateBtn");
-  btn.disabled = true; btn.textContent = "Creating...";
-  try {
-    const r = await apiFetch("/api/v2/api-keys", {
-      method: "POST",
-      body: JSON.stringify({ name })
-    });
-    _closeNewKeyModal();
-    _showKeyRevealModal(r.key, r.name);
-    loadApiKeys();
-  } catch (err) {
-    alert("[ERROR] " + err.message);
-    btn.disabled = false; btn.textContent = "Create";
-  }
-}
-
-function _showKeyRevealModal(key, name) {
-  _revealedKey = key;
-  const el = document.getElementById("revealKeyValue");
-  if (el) el.textContent = key;
-  document.getElementById("keyRevealModal").classList.remove("hidden");
-}
-
-function _closeKeyRevealModal() {
-  _revealedKey = "";
-  document.getElementById("keyRevealModal").classList.add("hidden");
-}
-
-function _copyRevealedKey() {
-  if (!_revealedKey) return;
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(_revealedKey).then(() => alert("[OK] Key copied to clipboard.")).catch(() => _copyFallback(_revealedKey));
-  } else {
-    _copyFallback(_revealedKey);
-  }
-}
-
-function _useBrowserKey() {
-  if (!_revealedKey) return;
-  localStorage.setItem("morgana_api_key", _revealedKey);
-  const inp = document.getElementById("apiKeyInput");
-  if (inp) inp.value = _revealedKey;
-  _closeKeyRevealModal();
-  alert("[OK] Key saved as browser session key.\nReload the page to activate it for API calls.");
-}
-
-async function deleteApiKey(id, name) {
-  if (!confirm(`Revoke key "${name}"?\n\nAny agent or tool using this key will stop working.`)) return;
-  try {
-    await apiFetch(`/api/v2/api-keys/${id}`, { method: "DELETE" });
-    loadApiKeys();
-  } catch (err) {
-    alert("[ERROR] " + err.message);
-  }
-}
-
 // ─── Script Editor Modal ──────────────────────────────────────────────────────
 
 let _currentScriptId = null;
@@ -931,7 +827,7 @@ function openNewScriptModal() {
     const el = document.getElementById(id);
     if (el) el.value = "";
   });
-  setVal("sm-source", "morgana");
+  setVal("sm-source", "custom");
   document.getElementById("sm-executor").value = "powershell";
   document.getElementById("sm-platform").value = "windows";
   document.getElementById("sm-delete-btn").style.display = "none";
@@ -946,7 +842,7 @@ function openScriptModal(scriptId) {
   const s = allScripts.find((x) => String(x.id) === String(scriptId));
   if (!s) { console.warn("[SCRIPT_MODAL] Script not found:", scriptId); return; }
   _currentScriptId = s.id;
-  _currentScriptIsAtomic = (s.source || "") === "atomic-red-team";
+  _currentScriptIsAtomic = (s.source || "") !== "custom";
 
   document.getElementById("scriptModalTitle").textContent = escHtml(s.name || "Script");
   document.getElementById("sm-name").value = s.name || "";
@@ -955,7 +851,7 @@ function openScriptModal(scriptId) {
   document.getElementById("sm-description").value = s.description || "";
   document.getElementById("sm-command").value = s.command || "";
   document.getElementById("sm-cleanup").value = s.cleanup_command || "";
-  document.getElementById("sm-source").value = s.source || "morgana";
+  document.getElementById("sm-source").value = s.source || "custom";
   document.getElementById("sm-executor").value = s.executor || "powershell";
   document.getElementById("sm-platform").value = s.platform || "all";
 
@@ -968,7 +864,7 @@ function openScriptModal(scriptId) {
   document.getElementById("sm-delete-btn").style.display = "inline-flex";
 
   document.getElementById("sm-execute-result").style.display = "none";
-  _loadAgentOptions(s.target_agent_paw || "");
+  _loadAgentOptions();
   loadEntityTagsInModal("script", s.id, "sm-tags-container");
   _scriptDirty = false;
   document.getElementById("scriptModal").classList.remove("hidden");
@@ -989,7 +885,6 @@ async function saveScriptFromModal() {
     cleanup_command: document.getElementById("sm-cleanup").value,
     executor: document.getElementById("sm-executor").value,
     platform: document.getElementById("sm-platform").value,
-    target_agent_paw: document.getElementById("sm-agent-select").value || null,
   };
   if (!payload.name || !payload.tcode || !payload.command) {
     alert("Name, TCode and Command are required.");
@@ -1029,37 +924,26 @@ async function deleteScriptFromModal() {
   }
 }
 
-async function _loadAgentOptions(selectedPaw) {
+async function _loadAgentOptions() {
   const sel = document.getElementById("sm-agent-select");
-  // Set special options immediately so combo shows correct value without waiting for agents
-  sel.innerHTML =
-    '<option value="">-- select target --</option>' +
-    '<option value="__ALL__">Broadcast: all agents</option>' +
-    '<option value="__TAGS__">Agents with this script\'s tags</option>';
-  if (selectedPaw === "__ALL__" || selectedPaw === "__TAGS__") {
-    sel.value = selectedPaw; // restore special value immediately
-  }
   try {
     const agents = await apiFetch("/api/v2/agents");
     const list = agents.agents || agents || [];
-    list.forEach((a) => {
-      const host = a.host || a.hostname || "";
-      let label = a.alias ? `${a.alias}  (${host})` : host;
-      label += `  [${a.paw}]`;
-      const opt = document.createElement("option");
-      opt.value       = escHtml(a.paw);
-      opt.textContent = label;
-      sel.appendChild(opt);
-    });
-    if (selectedPaw) sel.value = selectedPaw; // restore real paw after agents load
+    sel.innerHTML = `<option value="">Select agent...</option>` +
+      list.map((a) => {
+        const host = a.host || a.hostname || "";
+        let label = a.alias ? `${a.alias}  (${host})` : host;
+        label += `  [${a.paw}]`;
+        return `<option value="${escHtml(a.paw)}">${escHtml(label)}</option>`;
+      }).join("");
   } catch (err) {
-    // special options remain visible even if agent fetch fails
+    sel.innerHTML = `<option value="">Could not load agents</option>`;
   }
 }
 
 async function executeScriptFromModal() {
   const paw = document.getElementById("sm-agent-select").value;
-  if (!paw) { alert("Select a target first."); return; }
+  if (!paw) { alert("Select an agent first."); return; }
   const command = (document.getElementById("sm-command").value || "").trim();
   if (!command) { alert("Enter a command first."); return; }
 
@@ -1068,40 +952,6 @@ async function executeScriptFromModal() {
   const outputPre = document.getElementById("sm-output-pre");
   const outputStatus = document.getElementById("sm-output-status");
 
-  // Broadcast path: __ALL__ or __TAGS__ — no single-job output polling
-  if (paw === "__ALL__" || paw === "__TAGS__") {
-    resultEl.textContent = paw === "__TAGS__" ? "Targeting agents matching this script's tags..." : "Targeting all registered agents...";
-    resultEl.style.display = "inline";
-    outputSec.style.display = "none";
-    try {
-      // Save first — tag lookup needs a valid script ID
-      if (_currentScriptId && _scriptDirty) {
-        if (!confirm("Script has unsaved changes. Save now before executing?")) return;
-        await saveScriptFromModal();
-        if (!_currentScriptId) return;
-      }
-      if (!_currentScriptId) { resultEl.textContent = "[INFO] Save the script first before using tag-based targeting."; return; }
-      let paws;
-      try { paws = await _resolvePaws(paw, "script", String(_currentScriptId)); } catch(e) {
-        resultEl.textContent = "[INFO] " + e.message;
-        return;
-      }
-      resultEl.textContent = `Queuing on ${paws.length} agent(s)...`;
-      const jobs = [];
-      for (const p of paws) {
-        const r = await apiFetch(`/api/v2/scripts/${_currentScriptId}/execute`, {
-          method: "POST", body: JSON.stringify({ paw: p }),
-        });
-        jobs.push(r.job_id ? r.job_id.slice(0, 8) : "?");
-      }
-      resultEl.textContent = `[OK] Queued on ${paws.length} agent(s). IDs: ${jobs.join(", ")}`;
-    } catch (err) {
-      resultEl.textContent = "[ERROR] " + err.message;
-    }
-    return;
-  }
-
-  // Single-agent path (with output polling)
   resultEl.textContent = "Queuing...";
   resultEl.style.display = "inline";
   outputSec.style.display = "none";
@@ -1109,22 +959,23 @@ async function executeScriptFromModal() {
 
   try {
     let result;
-    if (_currentScriptId && _scriptDirty) {
-      if (!confirm("Script has unsaved changes. Save now before executing?")) return;
-      await saveScriptFromModal();
-      if (!_currentScriptId) return;
-    }
-    if (_currentScriptId) {
+    if (_currentScriptId && !_scriptDirty) {
+      // Saved and clean - execute the stored version
       result = await apiFetch(`/api/v2/scripts/${_currentScriptId}/execute`, {
         method: "POST",
         body: JSON.stringify({ paw }),
       });
     } else {
-      const executor = document.getElementById("sm-executor").value || "powershell";
-      const cleanup = (document.getElementById("sm-cleanup").value || "").trim();
-      result = await apiFetch("/api/v2/scripts/execute-adhoc", {
+      // Not saved yet, or has unsaved changes - prompt to save first
+      const msg = _currentScriptId
+        ? "Script has unsaved changes. Save now before executing?"
+        : "Script not saved yet. Save now before executing?";
+      if (!confirm(msg)) return;
+      await saveScriptFromModal();
+      if (!_currentScriptId) return; // save failed or validation error
+      result = await apiFetch(`/api/v2/scripts/${_currentScriptId}/execute`, {
         method: "POST",
-        body: JSON.stringify({ command, cleanup_command: cleanup, executor, paw }),
+        body: JSON.stringify({ paw }),
       });
     }
     if (!result.queued) {
@@ -1323,59 +1174,29 @@ async function loadTags() {
   try {
     const data = await apiFetch("/api/v2/tags");
     _allTags = data.tags || data || [];
-    renderTagsTable(_allTags);
-    loadWorkspaces();
+    renderTagsAdmin(_allTags);
   } catch (err) {
     console.error("[TAGS] Load failed:", err.message);
   }
 }
 
-function applyTagFilters() {
-  const q = (document.getElementById("tagFilterText")?.value || "").toLowerCase();
-  const ns = (document.getElementById("tagFilterNs")?.value || "").toLowerCase();
-  const tp = (document.getElementById("tagFilterType")?.value || "");
-  const meta = (document.getElementById("tagFilterMeta")?.value || "");
-  let filtered = _allTags;
-  if (q) filtered = filtered.filter((t) =>
-    (t.label || t.name || "").toLowerCase().includes(q) ||
-    (t.key || "").toLowerCase().includes(q)
-  );
-  if (ns) filtered = filtered.filter((t) => (t.namespace || t.group_name || "").toLowerCase().includes(ns));
-  if (tp) filtered = filtered.filter((t) => (t.tag_type || "") === tp);
-  if (meta === "runtime") filtered = filtered.filter((t) => t.is_runtime_param);
-  if (meta === "filterable") filtered = filtered.filter((t) => t.is_filterable);
-  renderTagsTable(filtered);
-}
-
-function renderTagsTable(tags) {
+function renderTagsAdmin(tags) {
   const tbody = document.getElementById("tagsTableBody");
   if (!tbody) return;
   if (!tags.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-row">No tags defined yet.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No tags defined yet.</td></tr>`;
     return;
   }
-  tbody.innerHTML = tags.map((t) => {
-    const label = escHtml(t.label || t.name || "");
-    const key = escHtml(t.key || "");
-    const val = t.value ? `=${escHtml(t.value)}` : "";
-    const ns = escHtml(t.namespace || t.group_name || "general");
-    const tp = escHtml(t.tag_type || "flag");
-    const scope = Array.isArray(t.scope) ? t.scope.join(", ") : escHtml(t.scope || "all");
-    const flags = [];
-    if (t.is_runtime_param) flags.push('<span title="runtime param" style="font-size:10px;background:#3b82f6;padding:1px 5px;border-radius:3px">RT</span>');
-    if (t.is_filterable) flags.push('<span title="filterable" style="font-size:10px;background:#10b981;padding:1px 5px;border-radius:3px">F</span>');
-    if (t.is_system) flags.push('<span title="system" style="font-size:10px;background:#f59e0b;padding:1px 5px;border-radius:3px">SYS</span>');
-    return `<tr>
-      <td><span class="tag-badge" style="background:${escHtml(t.color || "#667eea")}">${label}</span></td>
-      <td style="font-family:monospace;font-size:12px">${key}${val}</td>
-      <td><span style="opacity:.7;font-size:12px">${ns}</span></td>
-      <td><code style="font-size:11px">${tp}</code></td>
-      <td style="font-size:11px;opacity:.7">${scope}</td>
-      <td style="display:flex;gap:3px;flex-wrap:wrap">${flags.join("")}</td>
-      <td>${t.usage_count != null ? t.usage_count : "-"}</td>
-      <td>${t.is_system ? "" : `<button class="btn btn-danger btn-sm" onclick="deleteTag('${escHtml(String(t.id))}')">Delete</button>`}</td>
-    </tr>`;
-  }).join("");
+  tbody.innerHTML = tags.map((t) => `
+    <tr>
+      <td><span class="tag-badge" style="background:${escHtml(t.color || "#667eea")}">${escHtml(t.name)}</span></td>
+      <td>${escHtml(t.group_name || "-")}</td>
+      <td>${escHtml(t.scope || "all")}</td>
+      <td style="font-size:12px">${escHtml(t.description || "")}</td>
+      <td>-</td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteTag('${escHtml(t.id)}')">Delete</button></td>
+    </tr>
+  `).join("");
 }
 
 function showCreateTagForm() {
@@ -1386,36 +1207,27 @@ function showCreateTagForm() {
 function hideCreateTagForm() {
   const form = document.getElementById("createTagForm");
   if (form) form.classList.add("hidden");
-  ["tagLabel","tagKey","tagValue","tagNamespace","tagDescription"].forEach((id) => {
+  ["tagName", "tagGroup", "tagDescription"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.value = "";
   });
-  const typeEl = document.getElementById("tagType");
-  if (typeEl) typeEl.value = "string";
+  const scopeEl = document.getElementById("tagScope");
+  if (scopeEl) scopeEl.value = "all";
   const colorEl = document.getElementById("tagColor");
   if (colorEl) colorEl.value = "#667eea";
-  const rtEl = document.getElementById("tagIsRuntimeParam");
-  if (rtEl) rtEl.checked = false;
-  const filtEl = document.getElementById("tagIsFilterable");
-  if (filtEl) filtEl.checked = true;
 }
 
 async function createTag() {
-  const label = (document.getElementById("tagLabel")?.value || "").trim();
-  const key = (document.getElementById("tagKey")?.value || "").trim();
-  const value = (document.getElementById("tagValue")?.value || "").trim();
-  const namespace = (document.getElementById("tagNamespace")?.value || "").trim() || "general";
-  const tag_type = document.getElementById("tagType")?.value || "string";
+  const name = (document.getElementById("tagName")?.value || "").trim();
+  const group = (document.getElementById("tagGroup")?.value || "").trim();
+  const scope = document.getElementById("tagScope")?.value || "all";
   const color = document.getElementById("tagColor")?.value || "#667eea";
   const description = (document.getElementById("tagDescription")?.value || "").trim();
-  const is_runtime_param = document.getElementById("tagIsRuntimeParam")?.checked || false;
-  const is_filterable = document.getElementById("tagIsFilterable")?.checked ?? true;
-  if (!label) { alert("Label is required."); return; }
-  if (!key) { alert("Key is required."); return; }
+  if (!name) { alert("Tag name is required."); return; }
   try {
     await apiFetch("/api/v2/tags", {
       method: "POST",
-      body: JSON.stringify({ label, key, value: value || null, namespace, tag_type, color, description, is_runtime_param, is_filterable, is_assignable: true }),
+      body: JSON.stringify({ name, group_name: group, scope, color, description }),
     });
     hideCreateTagForm();
     await loadTags();
@@ -1432,459 +1244,6 @@ async function deleteTag(tagId) {
   } catch (err) {
     alert("Delete failed: " + err.message);
   }
-}
-
-// ── Workspaces ────────────────────────────────────────────────────────────────
-
-let _allWorkspaces = [];
-
-async function loadWorkspaces() {
-  try {
-    const data = await apiFetch("/api/v2/tags/workspaces");
-    _allWorkspaces = data.workspaces || data || [];
-    renderWorkspacesList(_allWorkspaces);
-  } catch (err) {
-    const el = document.getElementById("workspacesListBody");
-    if (el) el.innerHTML = `<p class="admin-hint">[ERROR] ${escHtml(err.message)}</p>`;
-  }
-}
-
-function renderWorkspacesList(list) {
-  const el = document.getElementById("workspacesListBody");
-  if (!el) return;
-  if (!list.length) {
-    el.innerHTML = `<p class="admin-hint">No workspaces yet. Create one to filter agents by tag expression.</p>`;
-    return;
-  }
-  el.innerHTML = list.map((ws) => `
-    <div style="display:flex;align-items:center;gap:.8rem;padding:.55rem .7rem;border-radius:6px;background:${ws.is_active ? "#1f2540" : "#151520"};border:1px solid ${ws.is_active ? "#5b4ecf" : "#2a2a3e"};margin-bottom:.5rem">
-      <div style="flex:1">
-        <strong style="color:${ws.is_active ? "#a78bfa" : "#ccc"}">${escHtml(ws.name)}</strong>
-        ${ws.description ? `<span style="opacity:.5;margin-left:.4rem;font-size:12px">${escHtml(ws.description)}</span>` : ""}
-        <br/>
-        <code style="font-size:11px;opacity:.65">${escHtml(ws.selector_expr || "")}</code>
-        ${ws.is_active && ws.matched_agents != null ? `<span style="font-size:11px;margin-left:.6rem;color:#10b981">${ws.matched_agents} agent(s) matched</span>` : ""}
-      </div>
-      <div style="display:flex;gap:.4rem">
-        ${ws.is_active
-          ? `<button class="btn btn-secondary btn-sm" onclick="clearActiveWorkspace()">Deactivate</button>`
-          : `<button class="btn btn-primary btn-sm" onclick="activateWorkspace('${escHtml(String(ws.id))}')">Activate</button>`
-        }
-        <button class="btn btn-danger btn-sm" onclick="deleteWorkspace('${escHtml(String(ws.id))}')">Delete</button>
-      </div>
-    </div>
-  `).join("");
-}
-
-function showCreateWorkspaceForm() {
-  const f = document.getElementById("createWorkspaceForm");
-  if (f) f.classList.remove("hidden");
-}
-
-function hideCreateWorkspaceForm() {
-  const f = document.getElementById("createWorkspaceForm");
-  if (f) f.classList.add("hidden");
-  ["wsName","wsExpr","wsDesc"].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.value = "";
-  });
-}
-
-async function createWorkspace() {
-  const name = (document.getElementById("wsName")?.value || "").trim();
-  const selector_expr = (document.getElementById("wsExpr")?.value || "").trim();
-  const description = (document.getElementById("wsDesc")?.value || "").trim();
-  if (!name) { alert("Workspace name is required."); return; }
-  if (!selector_expr) { alert("Selector expression is required."); return; }
-  try {
-    await apiFetch("/api/v2/tags/workspaces", {
-      method: "POST",
-      body: JSON.stringify({ name, selector_expr, description }),
-    });
-    hideCreateWorkspaceForm();
-    await loadWorkspaces();
-  } catch (err) {
-    alert("Create workspace failed: " + err.message);
-  }
-}
-
-async function activateWorkspace(id) {
-  try {
-    await apiFetch(`/api/v2/tags/workspaces/${id}/activate`, { method: "POST" });
-    await loadWorkspaces();
-    await checkActiveWorkspace();
-  } catch (err) {
-    alert("Activate failed: " + err.message);
-  }
-}
-
-async function deleteWorkspace(id) {
-  if (!confirm("Delete this workspace?")) return;
-  try {
-    await apiFetch(`/api/v2/tags/workspaces/${id}`, { method: "DELETE" });
-    await loadWorkspaces();
-    await checkActiveWorkspace();
-  } catch (err) {
-    alert("Delete failed: " + err.message);
-  }
-}
-
-async function clearActiveWorkspace() {
-  try {
-    await apiFetch("/api/v2/tags/workspaces/active", { method: "DELETE" });
-    await checkActiveWorkspace();
-    await loadWorkspaces();
-  } catch (err) {
-    alert("Clear failed: " + err.message);
-  }
-}
-
-async function checkActiveWorkspace() {
-  const bar = document.getElementById("workspace-bar");
-  try {
-    const ws = await apiFetch("/api/v2/tags/workspaces/active");
-    if (ws && ws.id) {
-      if (bar) { bar.style.display = "flex"; bar.classList.remove("hidden"); }
-      const nEl = document.getElementById("ws-bar-name");
-      const eEl = document.getElementById("ws-bar-expr");
-      const aEl = document.getElementById("ws-bar-agents");
-      if (nEl) nEl.textContent = ws.name;
-      if (eEl) eEl.textContent = ws.selector_expr || "";
-      if (aEl) aEl.textContent = ws.matched_agents != null ? `(${ws.matched_agents} agents)` : "";
-    } else {
-      if (bar) { bar.style.display = "none"; bar.classList.add("hidden"); }
-    }
-  } catch {
-    if (bar) { bar.style.display = "none"; bar.classList.add("hidden"); }
-  }
-}
-
-// ── Users ─────────────────────────────────────────────────────────────────────
-
-// -- Users ------------------------------------------------------------------
-
-async function loadUsers() {
-  const tbody = document.getElementById("usersTableBody");
-  if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="empty-row">Loading...</td></tr>`;
-  try {
-    const data = await apiFetch("/api/v2/users");
-    const users = Array.isArray(data) ? data : (data.users || []);
-    renderUsersTable(users);
-    // Show break glass warning if flagged
-    const bg = users.find((u) => u.is_break_glass);
-    if (bg && bg.default_password_warning) {
-      const el = document.getElementById("breakGlassBanner");
-      if (el) el.style.display = "block";
-    }
-  } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="empty-row">[ERROR] ${escHtml(err.message)}</td></tr>`;
-  }
-}
-
-function _wsLabel(workspaces) {
-  try {
-    const arr = Array.isArray(workspaces) ? workspaces : JSON.parse(workspaces || "[]");
-    if (!arr.length || arr[0] === "__ALL__") return "<span style=\"color:var(--text-secondary)\">All</span>";
-    return escHtml(arr.join(", "));
-  } catch (_) { return "?"; }
-}
-
-function renderUsersTable(users) {
-  const tbody = document.getElementById("usersTableBody");
-  _cachedUsers = users;
-  if (!tbody) return;
-  if (!users.length) {
-    tbody.innerHTML = `<tr><td colspan="9" class="empty-row">No users yet.</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = users.map((u) => {
-    const isBreakGlass = u.is_break_glass || false;
-    const roleColor = u.role === "admin" ? "#f59e0b" : u.role === "reader" ? "#aaa" : "var(--text-primary)";
-    const tagBadges = (u.tags || []).map((t) =>
-      `<span class="tag-badge" style="background:${escHtml(t.color || "#667eea")}">${escHtml(t.label || "")}</span>`
-    ).join("");
-    const actions = `<button class="btn btn-secondary btn-sm" onclick="openUserModal('${escHtml(String(u.id))}')">Open</button>`;
-    return `<tr>
-      <td>${escHtml(u.name || "")}${isBreakGlass ? " <span title=\"Break Glass\" style=\"color:#f59e0b;font-size:11px\">[BG]</span>" : ""}</td>
-      <td style="font-size:12px">${escHtml(u.email || "")}</td>
-      <td style="opacity:.7">${escHtml(u.aka || "")}</td>
-      <td><span style="color:${roleColor}">${escHtml(u.role || "?")}</span></td>
-      <td style="font-size:12px;opacity:.8">${escHtml(u.auth_provider || "local")}</td>
-      <td>${u.is_enabled ? "<span style=\"color:#10b981\">Yes</span>" : "<span style=\"color:#ef4444\">No</span>"}</td>
-      <td style="font-size:11px">${_wsLabel(u.workspaces || "[]")}</td>
-      <td>${tagBadges || "<span style=\"opacity:.4\">-</span>"}</td>
-      <td style="white-space:nowrap">${actions}</td>
-    </tr>`;
-  }).join("");
-}
-
-
-// -- User edit modal --------------------------------------------------------
-
-// -- User edit modal --------------------------------------------------------
-
-async function openUserModal(userId) {
-  _editingUserId   = userId;
-  _editingUserTagIds = [];
-  const u = _cachedUsers.find((x) => String(x.id) === String(userId));
-  if (!u) return;
-  const isBreakGlass = u.is_break_glass || false;
-  const roleColor = u.role === "admin" ? "#f59e0b" : u.role === "reader" ? "#aaa" : "var(--text-primary)";
-
-  document.getElementById("uem-title").textContent = u.name + (isBreakGlass ? " [BG]" : "");
-
-  document.getElementById("uem-static").innerHTML =
-    `<span style="color:var(--text-muted)">Email</span><span>${escHtml(u.email || "-")}</span>` +
-    `<span style="color:var(--text-muted)">Provider</span><span>${escHtml(u.auth_provider || "local")}</span>`;
-
-  document.getElementById("uem-aka").value = u.aka || "";
-
-  const roleEl = document.getElementById("uem-role");
-  roleEl.value    = u.role || "contributor";
-  roleEl.disabled = isBreakGlass;
-
-  const enabledCb = document.getElementById("uem-enabled");
-  enabledCb.checked  = !!u.is_enabled;
-  enabledCb.disabled = isBreakGlass;
-
-  const delBtn = document.getElementById("uem-delete-btn");
-  if (delBtn) delBtn.style.display = isBreakGlass ? "none" : "";
-
-  const chpw = document.getElementById("uem-chpw");
-  if (isBreakGlass) {
-    ["uemCpCurrentPw","uemCpNewPw","uemCpConfirmPw"].forEach((id) => { const e = document.getElementById(id); if (e) e.value = ""; });
-    const err = document.getElementById("uemCpError"); if (err) err.style.display = "none";
-    chpw.style.display = "";
-  } else {
-    chpw.style.display = "none";
-  }
-
-  const wsDiv  = document.getElementById("uem-workspaces");
-  const tagDiv = document.getElementById("uem-tags");
-  wsDiv.innerHTML  = `<span style="color:var(--text-muted);font-size:12px">Loading...</span>`;
-  tagDiv.innerHTML = `<span style="color:var(--text-muted);font-size:12px">Loading...</span>`;
-
-  document.getElementById("userEditModal").style.display = "flex";
-
-  try {
-    const [allWsData, allTagsData, userTagsData] = await Promise.all([
-      apiFetch("/api/v2/tags/workspaces"),
-      apiFetch("/api/v2/tags"),
-      apiFetch(`/api/v2/tags/entity/user/${userId}`),
-    ]);
-
-    const userWsList = (() => {
-      try { return Array.isArray(u.workspaces) ? u.workspaces : JSON.parse(u.workspaces || '["__ALL__"]'); }
-      catch (_) { return ["__ALL__"]; }
-    })();
-    const isAllWs = userWsList.includes("__ALL__");
-    const wsArr   = Array.isArray(allWsData) ? allWsData : (allWsData.workspaces || []);
-
-    let wsHtml = `<label style="display:flex;gap:6px;align-items:center;margin-bottom:8px;font-size:13px">` +
-      `<input type="checkbox" id="uem-ws-all" onchange="uemToggleAllWorkspaces(this.checked)" ${isAllWs ? "checked" : ""}> All workspaces</label>` +
-      `<div id="uem-ws-list" style="${isAllWs ? "opacity:.4;pointer-events:none" : ""}">`;
-    wsArr.forEach((ws) => {
-      const checked = !isAllWs && userWsList.includes(ws.id) ? "checked" : "";
-      wsHtml += `<label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-bottom:4px">` +
-        `<input type="checkbox" class="uem-ws-cb" value="${escHtml(ws.id)}" ${checked}> ${escHtml(ws.name || ws.id)}</label>`;
-    });
-    wsHtml += `</div>`;
-    wsDiv.innerHTML = wsArr.length ? wsHtml : `<label style="display:flex;gap:6px;align-items:center;font-size:13px">` +
-      `<input type="checkbox" id="uem-ws-all" checked onchange="uemToggleAllWorkspaces(this.checked)"> All workspaces</label>`;
-
-    const assignedTags = Array.isArray(userTagsData) ? userTagsData : (userTagsData.tags || []);
-    _editingUserTagIds = assignedTags.map((t) => String(t.id || t.tag_id));
-
-    const tagsArr = Array.isArray(allTagsData) ? allTagsData : (allTagsData.tags || []);
-    if (!tagsArr.length) {
-      tagDiv.innerHTML = `<span style="color:var(--text-muted);font-size:12px">No tags defined</span>`;
-    } else {
-      let tagsHtml = "";
-      tagsArr.forEach((t) => {
-        const checked = _editingUserTagIds.includes(String(t.id)) ? "checked" : "";
-        tagsHtml +=
-          `<label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-bottom:5px">` +
-          `<input type="checkbox" class="uem-tag-cb" value="${escHtml(String(t.id))}" ${checked}>` +
-          `<span class="tag-badge" style="background:${escHtml(t.color || "#667eea")}">${escHtml(t.label || t.name || "")}</span></label>`;
-      });
-      tagDiv.innerHTML = tagsHtml;
-    }
-  } catch (err) {
-    wsDiv.innerHTML  = `<span style="color:var(--danger);font-size:12px">[ERROR] ${escHtml(err.message)}</span>`;
-    tagDiv.innerHTML = "";
-  }
-}
-
-function closeUserModal() {
-  const m = document.getElementById("userEditModal");
-  if (m) m.style.display = "none";
-}
-
-function uemToggleAllWorkspaces(checked) {
-  const list = document.getElementById("uem-ws-list");
-  if (list) { list.style.opacity = checked ? ".4" : "1"; list.style.pointerEvents = checked ? "none" : ""; }
-}
-
-async function saveUserEdits() {
-  const userId = _editingUserId;
-  if (!userId) return;
-  const u = _cachedUsers.find((x) => String(x.id) === String(userId));
-  if (!u) return;
-
-  const aka     = (document.getElementById("uem-aka")?.value || "").trim() || null;
-  const role    = document.getElementById("uem-role")?.value || u.role;
-  const enabled = !!document.getElementById("uem-enabled")?.checked;
-
-  const allWsCb = document.getElementById("uem-ws-all");
-  const workspaces = allWsCb?.checked
-    ? ["__ALL__"]
-    : [...document.querySelectorAll(".uem-ws-cb:checked")].map((cb) => cb.value).filter(Boolean);
-
-  const newTagIds = [...document.querySelectorAll(".uem-tag-cb:checked")].map((cb) => cb.value);
-  const toAdd    = newTagIds.filter((id) => !_editingUserTagIds.includes(id));
-  const toRemove = _editingUserTagIds.filter((id) => !newTagIds.includes(id));
-
-  try {
-    await apiFetch(`/api/v2/users/${userId}`, {
-      method: "PUT",
-      body: JSON.stringify({ aka: aka || null, role, workspaces: workspaces.length ? workspaces : ["__ALL__"] }),
-    });
-
-    if (!u.is_break_glass) {
-      if (enabled && !u.is_enabled)  await apiFetch(`/api/v2/users/${userId}/enable`,  { method: "POST" });
-      if (!enabled && u.is_enabled)  await apiFetch(`/api/v2/users/${userId}/disable`, { method: "POST" });
-    }
-
-    await Promise.all([
-      ...toAdd.map((tid)    => apiFetch(`/api/v2/users/${userId}/tags`,        { method: "POST",   body: JSON.stringify({ tag_id: tid }) })),
-      ...toRemove.map((tid) => apiFetch(`/api/v2/users/${userId}/tags/${tid}`, { method: "DELETE" })),
-    ]);
-
-    closeUserModal();
-    await loadUsers();
-  } catch (err) {
-    alert("[ERROR] Save failed: " + err.message);
-  }
-}
-
-async function uemSubmitChangePassword() {
-  const current  = document.getElementById("uemCpCurrentPw")?.value || "";
-  const newPw    = document.getElementById("uemCpNewPw")?.value || "";
-  const confirm2 = document.getElementById("uemCpConfirmPw")?.value || "";
-  const errEl    = document.getElementById("uemCpError");
-  function showErr(msg) { if (errEl) { errEl.textContent = msg; errEl.style.display = "block"; } else alert(msg); }
-  if (newPw.length < 12) { showErr("New password must be at least 12 characters."); return; }
-  if (newPw !== confirm2) { showErr("Passwords do not match."); return; }
-  try {
-    await apiFetch("/api/v2/auth/change-password", {
-      method: "POST",
-      body: JSON.stringify({ current_password: current, new_password: newPw }),
-    });
-    closeUserModal();
-    const banner = document.getElementById("breakGlassBanner");
-    if (banner) banner.style.display = "none";
-    alert("Password updated successfully.");
-  } catch (err) { showErr("[ERROR] " + err.message); }
-}
-
-function showCreateUserForm() {
-  const el = document.getElementById("userCreateCard");
-  if (el) el.style.display = "";
-}
-
-function hideCreateUserForm() {
-  const el = document.getElementById("userCreateCard");
-  if (el) el.style.display = "none";
-  ["userName","userEmail","userAka","userPassword","userWorkspaces"].forEach((id) => {
-    const e = document.getElementById(id); if (e) e.value = "";
-  });
-  const roleEl = document.getElementById("userRole"); if (roleEl) roleEl.value = "contributor";
-  const provEl = document.getElementById("userAuthProvider"); if (provEl) provEl.value = "local";
-}
-
-async function createUser() {
-  const name     = (document.getElementById("userName")?.value || "").trim();
-  const email    = (document.getElementById("userEmail")?.value || "").trim();
-  const aka      = (document.getElementById("userAka")?.value || "").trim();
-  const password = (document.getElementById("userPassword")?.value || "");
-  const role     = document.getElementById("userRole")?.value || "contributor";
-  const auth_provider = document.getElementById("userAuthProvider")?.value || "local";
-  const wsRaw    = (document.getElementById("userWorkspaces")?.value || "").trim();
-  const workspaces = wsRaw ? wsRaw.split(",").map((s) => s.trim()).filter(Boolean) : ["__ALL__"];
-  if (!name)  { alert("Name is required."); return; }
-  if (!email) { alert("Email is required."); return; }
-  if (auth_provider === "local" && password && password.length < 8) {
-    alert("Password must be at least 8 characters."); return;
-  }
-  try {
-    await apiFetch("/api/v2/users", {
-      method: "POST",
-      body: JSON.stringify({ name, email, aka: aka || null, password: password || undefined, role, auth_provider, workspaces }),
-    });
-    hideCreateUserForm();
-    await loadUsers();
-  } catch (err) {
-    alert("Create user failed: " + err.message);
-  }
-}
-
-async function enableUser(userId) {
-  try {
-    await apiFetch(`/api/v2/users/${userId}/enable`, { method: "POST" });
-    await loadUsers();
-  } catch (err) { alert("Enable failed: " + err.message); }
-}
-
-async function disableUser(userId) {
-  if (!confirm("Disable this user?")) return;
-  try {
-    await apiFetch(`/api/v2/users/${userId}/disable`, { method: "POST" });
-    await loadUsers();
-  } catch (err) { alert("Disable failed: " + err.message); }
-}
-
-async function deleteUser(userId) {
-  if (!confirm("Delete this user?")) return;
-  try {
-    await apiFetch(`/api/v2/users/${userId}`, { method: "DELETE" });
-    await loadUsers();
-  } catch (err) {
-    alert("Delete failed: " + err.message);
-  }
-}
-
-// -- Break glass password change ---------------------------------------------
-
-function showChangePasswordModal() {
-  const m = document.getElementById("changePwModal");
-  if (!m) return;
-  m.style.display = "flex";
-  ["cpCurrentPw","cpNewPw","cpConfirmPw"].forEach((id) => { const e = document.getElementById(id); if (e) e.value = ""; });
-  const err = document.getElementById("cpError"); if (err) err.style.display = "none";
-}
-
-function hideChangePasswordModal() {
-  const m = document.getElementById("changePwModal"); if (m) m.style.display = "none";
-}
-
-async function submitChangePassword() {
-  const current  = document.getElementById("cpCurrentPw")?.value || "";
-  const newPw    = document.getElementById("cpNewPw")?.value || "";
-  const confirm2 = document.getElementById("cpConfirmPw")?.value || "";
-  const errEl    = document.getElementById("cpError");
-  function showCpError(msg) { if (errEl) { errEl.textContent = msg; errEl.style.display = "block"; } else alert(msg); }
-  if (newPw.length < 12) { showCpError("New password must be at least 12 characters."); return; }
-  if (newPw !== confirm2) { showCpError("Passwords do not match."); return; }
-  try {
-    await apiFetch("/api/v2/auth/change-password", {
-      method: "POST",
-      body: JSON.stringify({ current_password: current, new_password: newPw }),
-    });
-    hideChangePasswordModal();
-    const banner = document.getElementById("breakGlassBanner");
-    if (banner) banner.style.display = "none";
-    alert("Password updated successfully.");
-  } catch (err) { showCpError("Failed: " + err.message); }
 }
 
 // Load tags for a table-row cell (inline, non-blocking)
@@ -1947,14 +1306,10 @@ function openTagPicker(entityType, entityId) {
 
 function closeTagPicker() {
   document.getElementById("tagPickerModal").classList.add("hidden");
-  const { entityType, entityId } = _tagPickerContext;
-  // Refresh inline row for any entity
-  if (entityId) {
-    loadEntityTagsInline(entityType, entityId, `tags-${entityType}-${entityId}`);
-  }
-  // Refresh script modal if open
+  // Refresh modal tags if open
   if (_currentScriptId) {
     loadEntityTagsInModal("script", _currentScriptId, "sm-tags-container");
+    loadEntityTagsInline("script", _currentScriptId, `tags-script-${_currentScriptId}`);
   }
 }
 
@@ -2116,15 +1471,7 @@ function _openChainEditor() {
   // Populate agent selector
   const sel = document.getElementById("chain-agent-sel");
   if (sel) {
-    const _savedChainPaw = _editingChain.agent_paw || "";
-    sel.innerHTML =
-      '<option value="">-- select target --</option>' +
-      '<option value="__ALL__">Broadcast: all agents</option>' +
-      '<option value="__TAGS__">Agents with this chain\'s tags</option>';
-    // Restore special targets immediately (without waiting for agent list)
-    if (_savedChainPaw === "__ALL__" || _savedChainPaw === "__TAGS__") {
-      sel.value = _savedChainPaw;
-    }
+    sel.innerHTML = `<option value="">-- select agent --</option>`;
     apiFetch("/api/v2/agents").then((agents) => {
       (agents || []).forEach((a) => {
         const label = a.alias || a.host || a.hostname || a.paw;
@@ -2132,9 +1479,9 @@ function _openChainEditor() {
         const opt = document.createElement("option");
         opt.value       = a.paw;
         opt.textContent = `${label} [${a.paw}] - ${status}`;
+        if (a.paw === _editingChain.agent_paw) opt.selected = true;
         sel.appendChild(opt);
       });
-      if (_savedChainPaw) sel.value = _savedChainPaw; // restore after agents loaded
     }).catch(() => {});
   }
   renderChainFlow();
@@ -2155,7 +1502,7 @@ async function saveChain() {
   _editingChain.description = desc;
   _editingChain.agent_paw   = agentPaw;
 
-  const body = { name, description: desc, agent_paw: agentPaw, flow: { nodes: _editingChain.nodes } };
+  const body = { name, description: desc, agent_paw: agentPaw || null, flow: { nodes: _editingChain.nodes } };
   try {
     let saved;
     if (_editingChain.id) {
@@ -2169,12 +1516,7 @@ async function saveChain() {
     if (execBtn) execBtn.disabled = false;
     _chainDirty = false;
     alert("Chain saved.");
-    // Update _allChains inline so Execute-from-list immediately uses the new target
-    const _ciIdx = _allChains.findIndex((x) => x.id === saved.id);
-    const _ciPatch = { id: saved.id, name: saved.name, description: saved.description, agent_paw: agentPaw, flow: { nodes: _editingChain.nodes } };
-    if (_ciIdx >= 0) _allChains[_ciIdx] = Object.assign({}, _allChains[_ciIdx], _ciPatch);
-    else _allChains.unshift(_ciPatch);
-    loadChains(); // refresh in background
+    loadChains();
     _openChainEditor(); // keep editor open and re-render
   } catch (err) {
     alert("Save failed: " + err.message);
@@ -2190,28 +1532,6 @@ async function deleteChain(id) {
     _renderChainList();
   } catch (err) {
     alert("Delete failed: " + err.message);
-  }
-}
-
-async function deleteAllChains() {
-  if (!confirm("Delete ALL chains? This cannot be undone.")) return;
-  try {
-    await apiFetch("/api/v2/chains", { method: "DELETE" });
-    _allChains = [];
-    _renderChainList();
-    loadChainExecutionsList();
-  } catch (err) {
-    alert("Delete failed: " + err.message);
-  }
-}
-
-async function clearChainExecutions() {
-  if (!confirm("Clear the entire chain execution log? This cannot be undone.")) return;
-  try {
-    await apiFetch("/api/v2/chains/executions", { method: "DELETE" });
-    loadChainExecutionsList();
-  } catch (err) {
-    alert("Clear failed: " + err.message);
   }
 }
 
@@ -2270,27 +1590,26 @@ function importChainJSON() {
 // ── Execute ───────────────────────────────────────────────────────────────────
 
 async function executeChainFromEditor() {
-  if (_chainDirty) {
-    if (!confirm("Chain has unsaved changes. Save now before executing?")) return;
+  if (!_editingChain.id || _chainDirty) {
+    const msg = _editingChain.id
+      ? "Chain has unsaved changes. Save now before executing?"
+      : "Chain not saved yet. Save now before executing?";
+    if (!confirm(msg)) return;
     await saveChain();
     if (!_editingChain.id) return;
   }
-  if (!_editingChain.id) { alert("Save the chain first."); return; }
   const paw = (document.getElementById("chain-agent-sel").value || "").trim();
-  if (!paw) { alert("Select a target before executing."); return; }
-  // Auto-save agent_paw if it changed without other dirty changes
-  if (paw !== (_editingChain.agent_paw || "")) {
-    _editingChain.agent_paw = paw;
-    await saveChain();
-    if (!_editingChain.id) return;
-  }
-  const targetLabel = paw === "__ALL__" ? "all registered agents" : paw === "__TAGS__" ? "agents matching this chain's tags" : `agent ${paw}`;
-  if (!confirm(`Execute chain "${_editingChain.name}" on ${targetLabel}?`)) return;
+  if (!paw) { alert("Select a Default Agent before executing."); return; }
+  if (!confirm(`Execute chain "${_editingChain.name}" on agent ${paw}?`)) return;
   try {
-    await _execWithTarget("chain", _editingChain.id, paw);
-    closeChainEditor(); // navigate to list where chain executions are visible
+    const r = await apiFetch(`/api/v2/chains/${_editingChain.id}/execute`, {
+      method: "POST",
+      body: JSON.stringify({ agent_paw: paw }),
+    });
+    alert(`Chain execution started.\nExecution ID: ${r.execution_id}\n\nCheck the Executions list on the Chains page for the live log.`);
+    loadChainExecutionsList();
   } catch (err) {
-    alert("[INFO] " + err.message);
+    alert("Execute failed: " + err.message);
   }
 }
 
@@ -2378,11 +1697,12 @@ function _buildFlowHTML(nodes, branch, ifElseId) {
   html += _addBtnHTML(branch, 0, ifElseId);
 
   nodes.forEach((node, idx) => {
+    html += `<div class="chain-vline"></div>`;
     if (node.type === "if_else") {
-      html += `<div class="chain-vline"></div>`;
       html += _renderIfElseNodeHTML(node, branch, ifElseId);
+    } else if (node.type === "parallel") {
+      html += _renderChainParallelNodeHTML(node, branch, ifElseId);
     } else {
-      html += `<div class="chain-vline"></div>`;
       html += _renderScriptNodeHTML(node, branch, ifElseId);
     }
     // Add button after this node
@@ -2402,8 +1722,7 @@ function _renderScriptNodeHTML(node, branch, ifElseId) {
       <div class="csn-tcode">${escHtml(node.tcode || "?")}</div>
       <div class="csn-name">${escHtml(node.script_name || "Unknown Script")}</div>
       <div class="csn-actions">
-        <button class="btn btn-secondary btn-sm" onclick="openChainNodeScript('${nid}')">Open</button>
-        <button class="btn btn-secondary btn-sm" onclick="replaceChainScript('${nid}','${br}','${iid}')">Change</button>
+        <button class="btn btn-secondary btn-sm" onclick="replaceChainScript('${nid}','${br}','${iid}')">Open</button>
         <button class="btn btn-danger btn-sm"    onclick="removeChainNode('${nid}','${br}','${iid}')">Remove</button>
       </div>
     </div>`;
@@ -2437,6 +1756,33 @@ function _renderIfElseNodeHTML(node, branch, ifElseId) {
         <div class="chain-branch-label">ELSE</div>
         ${_buildFlowHTML(node.else_nodes || [], "else_nodes", node.id)}
       </div>
+    </div>`;
+}
+
+function _renderChainParallelNodeHTML(node, branch, ifElseId) {
+  const nid = escHtml(node.id);
+  const br  = escHtml(branch);
+  const iid = ifElseId ? escHtml(ifElseId) : "null";
+  let branchesHTML = "";
+  (node.branches || []).forEach((bNodes, i) => {
+    branchesHTML += `
+      <div class="camp-branch-col">
+        <div class="camp-branch-header">
+          <span style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Branch ${i + 1}</span>
+          <button class="btn btn-danger btn-sm" style="margin-left:auto;font-size:10px" onclick="removeChainParallelBranch('${nid}',${i})">Remove branch</button>
+        </div>
+        ${_buildFlowHTML(bNodes, "par_branch", nid + "_" + i)}
+        <button class="btn btn-secondary btn-sm" style="margin-top:6px;font-size:11px" onclick="chainParallelAddScript('${nid}',${i})">+ script</button>
+      </div>`;
+  });
+  return `
+    <div class="camp-parallel-node" id="cnode-${nid}">
+      <div class="cpar-header">
+        [PARALLEL]
+        <button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="addChainParallelBranch('${nid}')">+ Branch</button>
+        <button class="btn btn-danger btn-sm" onclick="removeChainNode('${nid}','${br}','${iid}')">Remove</button>
+      </div>
+      <div class="camp-parallel-branches">${branchesHTML || '<div style="color:var(--text-muted);padding:12px;font-size:12px">No branches yet. Click &quot;+ Branch&quot;.</div>'}</div>
     </div>`;
 }
 
@@ -2498,6 +1844,42 @@ function chainMenuAddIfElse() {
   _insertNodeAt(_editingChain.nodes, node, branch, index, ifElseId);
   _chainDirty = true;
   renderChainFlow();
+}
+
+function chainMenuAddParallel() {
+  const ctx = _chainAddMenuCtx;
+  closeChainAddMenu();
+  if (!ctx) return;
+  const node = {
+    id:       _genNodeId(),
+    type:     "parallel",
+    branches: [[], []],
+  };
+  _insertNodeAt(_editingChain.nodes, node, ctx.branch, ctx.index, ctx.ifElseId);
+  _chainDirty = true;
+  renderChainFlow();
+}
+
+function addChainParallelBranch(parallelNodeId) {
+  _chainWalkAndModifyParallel(_editingChain.nodes, parallelNodeId, (pNode) => {
+    pNode.branches.push([]);
+  });
+  _chainDirty = true;
+  renderChainFlow();
+}
+
+function removeChainParallelBranch(parallelNodeId, branchIdx) {
+  if (!confirm("Remove this branch and all its scripts?")) return;
+  _chainWalkAndModifyParallel(_editingChain.nodes, parallelNodeId, (pNode) => {
+    pNode.branches.splice(branchIdx, 1);
+  });
+  _chainDirty = true;
+  renderChainFlow();
+}
+
+function chainParallelAddScript(parallelNodeId, branchIdx) {
+  _chainPickerCtx = { type: "par_branch", parallelNodeId, branchIdx };
+  _openChainScriptPicker();
 }
 
 // ── Script picker (re-uses allScripts) ───────────────────────────────────────
@@ -2576,6 +1958,21 @@ function chainPickScript(scriptId) {
   if (ctx.type === "replace") {
     // Replace the node already in the tree
     _walkAndReplace(_editingChain.nodes, ctx.nodeId, s);
+  } else if (ctx.type === "par_branch") {
+    // Append to a specific parallel branch
+    const node = {
+      id:          _genNodeId(),
+      type:        "script",
+      script_id:   s.id,
+      script_name: s.name,
+      tcode:       s.tcode,
+      tactic:      s.tactic,
+    };
+    _chainWalkAndModifyParallel(_editingChain.nodes, ctx.parallelNodeId, (pNode) => {
+      if (pNode.branches[ctx.branchIdx]) {
+        pNode.branches[ctx.branchIdx].push(node);
+      }
+    });
   } else {
     // Insert new node at position
     const { branch, index, ifElseId } = ctx;
@@ -2601,35 +1998,6 @@ function replaceChainScript(nodeId, branch, ifElseIdStr) {
 
 // ── Remove node ───────────────────────────────────────────────────────────────
 
-// ── Open script detail from chain node ──────────────────────────────────────────
-
-function _findNodeInTree(nodes, nodeId) {
-  for (const n of nodes) {
-    if (n.id === nodeId) return n;
-    if (n.type === "if_else") {
-      const r = _findNodeInTree(n.if_nodes || [], nodeId)
-             || _findNodeInTree(n.else_nodes || [], nodeId);
-      if (r) return r;
-    }
-  }
-  return null;
-}
-
-async function openChainNodeScript(nodeId) {
-  const node = _findNodeInTree(_editingChain.nodes, nodeId);
-  if (!node || !node.script_id) { alert("Script not found in chain."); return; }
-  if (!allScripts.length) {
-    try {
-      const data = await apiFetch("/api/v2/scripts?limit=5000");
-      allScripts = data.scripts || data || [];
-    } catch (e) {
-      alert("Could not load scripts: " + e.message);
-      return;
-    }
-  }
-  openScriptModal(node.script_id);
-}
-
 function removeChainNode(nodeId, branch, ifElseIdStr) {
   if (!confirm("WARNING: This will remove the selected node AND all nodes that follow it in this branch.\nThis action cannot be undone.\n\nContinue?")) return;
   const ifElseId = (ifElseIdStr === "null") ? null : ifElseIdStr;
@@ -2652,15 +2020,28 @@ function _genNodeId() {
 
 /**
  * Insert a node into the right place in the tree.
- * - branch = "root"       -> top-level nodes array
- * - branch = "if_nodes"   -> if_nodes of the if/else with ifElseId
- * - branch = "else_nodes" -> else_nodes of the if/else with ifElseId
+ * - branch = "root"        -> top-level nodes array
+ * - branch = "if_nodes"    -> if_nodes of the if/else with ifElseId
+ * - branch = "else_nodes"  -> else_nodes of the if/else with ifElseId
+ * - branch = "par_branch"  -> parallel branch; ifElseId = "parallelNodeId_branchIdx"
  */
 function _insertNodeAt(nodes, newNode, branch, index, ifElseId) {
   if (!ifElseId || branch === "root") {
     nodes.splice(index, 0, newNode);
     return true;
   }
+  // Parallel branch context
+  if (branch === "par_branch") {
+    const lastUs   = ifElseId.lastIndexOf("_");
+    const pNodeId  = ifElseId.slice(0, lastUs);
+    const branchIdx = parseInt(ifElseId.slice(lastUs + 1), 10);
+    return _chainWalkAndModifyParallel(nodes, pNodeId, (pNode) => {
+      if (pNode.branches[branchIdx]) {
+        pNode.branches[branchIdx].splice(index, 0, newNode);
+      }
+    });
+  }
+  // If/else branch context
   for (const n of nodes) {
     if (n.type === "if_else") {
       if (n.id === ifElseId) {
@@ -2672,6 +2053,12 @@ function _insertNodeAt(nodes, newNode, branch, index, ifElseId) {
       // recurse into sub-branches
       if (_insertNodeAt(n.if_nodes   || [], newNode, branch, index, ifElseId)) return true;
       if (_insertNodeAt(n.else_nodes || [], newNode, branch, index, ifElseId)) return true;
+    }
+    // recurse into parallel branches (for nested if/else inside parallel)
+    if (n.type === "parallel") {
+      for (const bl of (n.branches || [])) {
+        if (_insertNodeAt(bl, newNode, branch, index, ifElseId)) return true;
+      }
     }
   }
   return false;
@@ -2689,11 +2076,16 @@ function _walkAndRemove(nodes, nodeId, branch, ifElseId) {
     nodes.splice(idx); // remove node + all following in this branch
     return true;
   }
-  // Recurse into if/else sub-branches
+  // Recurse into if/else and parallel sub-branches
   for (const n of nodes) {
     if (n.type === "if_else") {
       if (_walkAndRemove(n.if_nodes   || [], nodeId, "if_nodes",   n.id)) return true;
       if (_walkAndRemove(n.else_nodes || [], nodeId, "else_nodes", n.id)) return true;
+    }
+    if (n.type === "parallel") {
+      for (const bl of (n.branches || [])) {
+        if (_walkAndRemove(bl, nodeId, "par_branch", null)) return true;
+      }
     }
   }
   return false;
@@ -2731,6 +2123,30 @@ function _walkAndUpdateContains(nodes, nodeId, value) {
     if (n.type === "if_else") {
       if (_walkAndUpdateContains(n.if_nodes   || [], nodeId, value)) return true;
       if (_walkAndUpdateContains(n.else_nodes || [], nodeId, value)) return true;
+    }
+    if (n.type === "parallel") {
+      for (const bl of (n.branches || [])) {
+        if (_walkAndUpdateContains(bl, nodeId, value)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function _chainWalkAndModifyParallel(nodes, parallelNodeId, fn) {
+  for (const n of nodes) {
+    if (n.type === "parallel" && n.id === parallelNodeId) {
+      fn(n);
+      return true;
+    }
+    if (n.type === "parallel") {
+      for (const bl of (n.branches || [])) {
+        if (_chainWalkAndModifyParallel(bl, parallelNodeId, fn)) return true;
+      }
+    }
+    if (n.type === "if_else") {
+      if (_chainWalkAndModifyParallel(n.if_nodes   || [], parallelNodeId, fn)) return true;
+      if (_chainWalkAndModifyParallel(n.else_nodes || [], parallelNodeId, fn)) return true;
     }
   }
   return false;
@@ -2892,40 +2308,17 @@ async function _openCampaignEditor() {
   try {
     const agents = await apiFetch("/api/v2/agents");
     const sel = document.getElementById("camp-agent-sel");
-    const _savedCampPaw = _editingCampaign.agent_paw || "";
-    sel.innerHTML =
-      '<option value="">-- select target --</option>' +
-      '<option value="__ALL__">Broadcast: all agents</option>' +
-      '<option value="__TAGS__">Agents with this campaign\'s tags</option>';
-    // Restore special targets before adding real agents
-    if (_savedCampPaw === "__ALL__" || _savedCampPaw === "__TAGS__") {
-      sel.value = _savedCampPaw;
-    }
-    agents.forEach((a) => {
-      const label = a.alias || a.host || a.hostname || a.paw;
-      const opt = document.createElement("option");
-      opt.value       = escHtml(a.paw);
-      opt.textContent = `${label} [${a.paw}]`;
-      sel.appendChild(opt);
-    });
-    if (_savedCampPaw) sel.value = _savedCampPaw;
+    sel.innerHTML = `<option value="">-- select agent --</option>` +
+      agents.map((a) => {
+        const label = a.alias || a.host || a.hostname || a.paw;
+        return `<option value="${escHtml(a.paw)}" ${a.paw === _editingCampaign.agent_paw ? "selected" : ""}>${escHtml(label)} [${escHtml(a.paw)}]</option>`;
+      }).join("");
   } catch (e) { /* ignore */ }
 
   // Load chains for picker cache
   try {
     _campAllChains = await apiFetch("/api/v2/chains");
   } catch (e) { _campAllChains = []; }
-
-  // Load tags for this campaign
-  const campAddTagBtn = document.getElementById("camp-add-tag-btn");
-  if (_editingCampaign.id) {
-    if (campAddTagBtn) campAddTagBtn.disabled = false;
-    loadEntityTagsInModal("campaign", _editingCampaign.id, "camp-tags-container");
-  } else {
-    if (campAddTagBtn) campAddTagBtn.disabled = true;
-    const tc = document.getElementById("camp-tags-container");
-    if (tc) tc.innerHTML = "<span class='admin-hint'>Save campaign first to assign tags.</span>";
-  }
 
   renderCampaignFlow();
 }
@@ -2940,7 +2333,7 @@ async function saveCampaign() {
   _editingCampaign.description = desc;
   _editingCampaign.agent_paw   = agePaw;
 
-  const body = { name, description: desc, agent_paw: agePaw, flow_json: JSON.stringify({ nodes: _editingCampaign.nodes }) };
+  const body = { name, description: desc, agent_paw: agePaw || null, flow_json: JSON.stringify({ nodes: _editingCampaign.nodes }) };
   try {
     let saved;
     if (_editingCampaign.id) {
@@ -2950,19 +2343,10 @@ async function saveCampaign() {
     }
     _editingCampaign.id = saved.id;
     document.getElementById("campaign-editor-title").textContent = saved.name;
-    // Enable tags section now that we have an id
-    const _campTagBtn = document.getElementById("camp-add-tag-btn");
-    if (_campTagBtn) _campTagBtn.disabled = false;
-    loadEntityTagsInModal("campaign", saved.id, "camp-tags-container");
     document.getElementById("camp-exec-btn").disabled = false;
     _campaignDirty = false;
     alert("Campaign saved.");
-    // Update _allCampaigns inline so Execute-from-list immediately uses the new target
-    const _cmpIdx = _allCampaigns.findIndex((x) => x.id === saved.id);
-    const _cmpPatch = { id: saved.id, name: saved.name, description: saved.description, agent_paw: agePaw };
-    if (_cmpIdx >= 0) _allCampaigns[_cmpIdx] = Object.assign({}, _allCampaigns[_cmpIdx], _cmpPatch);
-    else _allCampaigns.unshift(_cmpPatch);
-    loadCampaigns(); // refresh in background
+    loadCampaigns();
   } catch (err) {
     alert("Save failed: " + err.message);
   }
@@ -2975,16 +2359,6 @@ async function deleteCampaign(id) {
     loadCampaigns();
   } catch (err) {
     alert("Delete failed: " + err.message);
-  }
-}
-
-async function clearCampaignExecutions() {
-  if (!confirm("Clear the entire campaign execution log? This cannot be undone.")) return;
-  try {
-    await apiFetch("/api/v2/campaigns/executions", { method: "DELETE" });
-    loadCampaignExecutionsList();
-  } catch (err) {
-    alert("Clear failed: " + err.message);
   }
 }
 
@@ -3015,28 +2389,26 @@ function closeCampaignEditor() {
 }
 
 async function executeCampaignFromEditor() {
-  if (_campaignDirty) {
-    if (!confirm("Campaign has unsaved changes. Save now before executing?")) return;
+  if (!_editingCampaign.id || _campaignDirty) {
+    const msg = _editingCampaign.id
+      ? "Campaign has unsaved changes. Save now before executing?"
+      : "Campaign not saved yet. Save now before executing?";
+    if (!confirm(msg)) return;
     await saveCampaign();
     if (!_editingCampaign.id) return;
   }
-  if (!_editingCampaign.id) { alert("Save the campaign first."); return; }
   const agentPaw = document.getElementById("camp-agent-sel").value;
-  if (!agentPaw) { alert("Select a target before executing."); return; }
-  const cmp = _editingCampaign;
-  // Auto-save agent_paw if it changed without other dirty changes
-  if (agentPaw !== (cmp.agent_paw || "")) {
-    cmp.agent_paw = agentPaw;
-    await saveCampaign();
-    if (!_editingCampaign.id) return;
-  }
-  const targetLabel = agentPaw === "__ALL__" ? "all registered agents" : agentPaw === "__TAGS__" ? "agents matching this campaign's tags" : `agent ${agentPaw}`;
-  if (!confirm(`Execute campaign "${cmp.name}" on ${targetLabel}?`)) return;
+  if (!agentPaw) { alert("Select an agent before executing."); return; }
+  const c = _editingCampaign;
+  if (!confirm(`Execute campaign "${escHtml(c.name)}" on agent ${escHtml(agentPaw)}?`)) return;
   try {
-    await _execWithTarget("campaign", cmp.id, agentPaw);
-    closeCampaignEditor(); // navigate to list where campaign executions are visible
+    const r = await apiFetch(`/api/v2/campaigns/${c.id}/execute`, {
+      method: "POST",
+      body: JSON.stringify({ agent_paw: agentPaw }),
+    });
+    alert(`Campaign execution started.\nExecution ID: ${r.execution_id}`);
   } catch (err) {
-    alert("[INFO] " + err.message);
+    alert("Execute failed: " + err.message);
   }
 }
 
@@ -3051,38 +2423,30 @@ async function _showQuickExecModal(type, id) {
   const entry = type === "script"
     ? allScripts.find((s) => String(s.id) === String(id))
     : type === "chain"
-      ? _allChains.find((x) => x.id === id)
-      : _allCampaigns.find((x) => x.id === id);
-  document.getElementById("qe-title").textContent = "Execute: " + ((entry || {}).name || id);
+      ? _allChains.find((c) => c.id === id)
+      : _allCampaigns.find((c) => c.id === id);
+  document.getElementById("qe-title").textContent = `Execute: ${(entry || {}).name || id}`;
   const sel = document.getElementById("qe-agent-sel");
-  sel.innerHTML = '<option value="">Loading agents...</option>';
+  sel.innerHTML = `<option value="">Loading agents...</option>`;
   const btn = document.getElementById("qe-run-btn");
   btn.disabled    = false;
   btn.textContent = "Execute";
   document.getElementById("quickExecModal").classList.remove("hidden");
-  const _savedExecPaw = (entry || {}).agent_paw || (entry || {}).target_agent_paw || "";
   try {
     const agents = await apiFetch("/api/v2/agents");
     const list = agents.agents || agents || [];
-    sel.innerHTML =
-      '<option value="">-- select target --</option>' +
-      '<option value="__ALL__">Broadcast: all agents</option>' +
-      `<option value="__TAGS__">${"Agents with this " + type + "'s tags"}</option>` +
+    if (!list.length) {
+      sel.innerHTML = `<option value="">No agents registered</option>`;
+      return;
+    }
+    sel.innerHTML = `<option value="">Select agent...</option>` +
       list.map((a) => {
         const host  = a.host || a.hostname || "";
-        const label = a.alias ? a.alias + "  (" + host + ")  [" + a.paw + "]" : host + "  [" + a.paw + "]";
-        return '<option value="' + escHtml(a.paw) + '">' + escHtml(label) + '</option>';
+        const label = a.alias ? `${a.alias}  (${host})  [${a.paw}]` : `${host}  [${a.paw}]`;
+        return `<option value="${escHtml(a.paw)}">${escHtml(label)}</option>`;
       }).join("");
-    const livePaws2 = list.map((a) => a.paw);
-    const pawValid  = _savedExecPaw === "__ALL__" || _savedExecPaw === "__TAGS__" || livePaws2.includes(_savedExecPaw);
-    if (_savedExecPaw && pawValid) {
-      sel.value = _savedExecPaw;
-    } else {
-      // Stale/missing paw — pre-select __ALL__ so user just clicks Execute
-      sel.value = "__ALL__";
-    }
   } catch (err) {
-    sel.innerHTML = '<option value="">Error loading agents</option>';
+    sel.innerHTML = `<option value="">Error loading agents</option>`;
   }
 }
 
@@ -3094,29 +2458,32 @@ function closeQuickExecModal() {
 
 async function _quickExecRun() {
   const paw = document.getElementById("qe-agent-sel").value;
-  if (!paw) { alert("Select a target first."); return; }
+  if (!paw) { alert("Select an agent first."); return; }
   const btn = document.getElementById("qe-run-btn");
   btn.disabled    = true;
   btn.textContent = "Running...";
   try {
-    const execType = _qeType;
-    const execId   = _qeId;
-    closeQuickExecModal();
-    // Persist selected target so next Execute from list fires directly
-    if (execType === "chain") {
-      apiFetch(`/api/v2/chains/${execId}`, { method: "PUT", body: JSON.stringify({ agent_paw: paw }) }).then((updated) => {
-        const idx = _allChains.findIndex((x) => x.id === execId);
-        if (idx >= 0) _allChains[idx] = Object.assign({}, _allChains[idx], { agent_paw: updated.agent_paw || paw });
-      }).catch(() => {});
-    } else if (execType === "campaign") {
-      apiFetch(`/api/v2/campaigns/${execId}`, { method: "PUT", body: JSON.stringify({ agent_paw: paw }) }).then((updated) => {
-        const idx = _allCampaigns.findIndex((x) => x.id === execId);
-        if (idx >= 0) _allCampaigns[idx] = Object.assign({}, _allCampaigns[idx], { agent_paw: updated.agent_paw || paw });
-      }).catch(() => {});
-    } else if (execType === "script") {
-      apiFetch(`/api/v2/scripts/${execId}`, { method: "PUT", body: JSON.stringify({ target_agent_paw: paw }) }).catch(() => {});
+    let endpoint, body;
+    if (_qeType === "script") {
+      endpoint = `/api/v2/scripts/${_qeId}/execute`;
+      body = { paw };
+    } else if (_qeType === "chain") {
+      endpoint = `/api/v2/chains/${_qeId}/execute`;
+      body = { agent_paw: paw };
+    } else {
+      endpoint = `/api/v2/campaigns/${_qeId}/execute`;
+      body = { agent_paw: paw };
     }
-    await _execWithTarget(execType, execId, paw);
+    const r = await apiFetch(endpoint, { method: "POST", body: JSON.stringify(body) });
+    closeQuickExecModal();
+    if (_qeType === "script") {
+      alert(`[OK] Job queued.\nJob ID: ${r.job_id ? r.job_id.slice(0, 8) + "..." : "-"}`);
+    } else if (_qeType === "chain") {
+      alert(`Chain execution started.\nExecution ID: ${r.execution_id}\n\nCheck the Executions list on the Chains page.`);
+      loadChainExecutionsList();
+    } else {
+      alert(`Campaign execution started.\nExecution ID: ${r.execution_id}`);
+    }
   } catch (err) {
     alert("[ERROR] " + err.message);
   } finally {
@@ -3125,111 +2492,9 @@ async function _quickExecRun() {
   }
 }
 
-// Resolve paw -> list of agent paws (handles __ALL__ / __TAGS__)
-async function _resolvePaws(paw, entityType, entityId) {
-  if (paw !== "__ALL__" && paw !== "__TAGS__") return [paw];
-  if (paw === "__ALL__") {
-    const data = await apiFetch("/api/v2/agents");
-    const list = data.agents || data || [];
-    if (!list.length) throw new Error("No agents registered.");
-    return list.map((a) => a.paw);
-  }
-  // __TAGS__: find agents sharing at least one tag with this entity
-  if (!entityType || !entityId) {
-    throw new Error("Save this item first — tags are checked after saving.");
-  }
-  const resolved = await apiFetch(
-    `/api/v2/tags/resolve-agents-by-entity?entity_type=${entityType}&entity_id=${entityId}`
-  );
-  const paws = (resolved.agents || []).map((a) => a.paw);
-  if (!paws.length) {
-    throw new Error(
-      `No agents share tags with this ${entityType}. ` +
-      "Assign the same tag(s) to at least one agent first."
-    );
-  }
-  return paws;
-}
-
-// Execute type/id against a target paw (or __ALL__ / __TAGS__) — no modal
-async function _execWithTarget(execType, execId, paw) {
-  const paws = await _resolvePaws(paw, execType, String(execId));
-  const isBroadcast = (paw === "__ALL__" || paw === "__TAGS__");
-  const results = [];
-  const errors  = [];
-  for (const p of paws) {
-    let endpoint, body;
-    if (execType === "script") {
-      endpoint = "/api/v2/scripts/" + execId + "/execute";
-      body = { paw: p };
-    } else if (execType === "chain") {
-      endpoint = "/api/v2/chains/" + execId + "/execute";
-      body = { agent_paw: p };
-    } else {
-      endpoint = "/api/v2/campaigns/" + execId + "/execute";
-      body = { agent_paw: p };
-    }
-    try {
-      const r = await apiFetch(endpoint, { method: "POST", body: JSON.stringify(body) });
-      results.push({ paw: p, r });
-    } catch (e) {
-      errors.push({ paw: p, msg: e.message });
-    }
-  }
-  if (!results.length && errors.length) {
-    throw new Error("All agents failed. Details:\n" + errors.map((x) => x.paw + ": " + x.msg).join("\n"));
-  }
-  const errNote = errors.length
-    ? "\n[WARN] Skipped " + errors.length + " agent(s): " + errors.map((x) => x.paw + " (" + x.msg + ")").join(", ")
-    : "";
-  if (execType === "script") {
-    const ids = results.map((x) => (x.r.job_id || "?").slice(0, 8)).join(", ");
-    alert("[OK] Script queued on " + results.length + " agent(s).\nJob ID(s): " + ids + errNote);
-  } else if (execType === "chain") {
-    const ids = results.map((x) => (x.r.execution_id || "?").slice(0, 8)).join(", ");
-    alert("Chain started on " + results.length + " agent(s).\nExecution ID(s): " + ids + errNote);
-    loadChainExecutionsList();
-  } else {
-    const ids = results.map((x) => (x.r.execution_id || "?").slice(0, 8)).join(", ");
-    alert("Campaign started on " + results.length + " agent(s).\nExecution ID(s): " + ids + errNote);
-  }
-}
-
-// Smart execute: use saved target if present, otherwise show modal
-function quickExecuteScript(id) {
-  const s = allScripts.find((x) => String(x.id) === String(id));
-  const saved = (s || {}).target_agent_paw;
-  if (saved) { _execWithTarget("script", id, saved).catch((e) => alert("[ERROR] " + e.message)); return; }
-  _showQuickExecModal("script", id);
-}
-function quickExecuteChain(id) {
-  // Fetch fresh chain + live agents
-  Promise.all([apiFetch("/api/v2/chains/" + id), apiFetch("/api/v2/agents")])
-    .then(([chain, agentData]) => {
-      const paw = (chain.agent_paw || "").trim();
-      if (!paw) { _showQuickExecModal("chain", id); return; }
-      // Has a saved target — validate; if stale real paw, fall back to __ALL__ silently
-      const livePaws = (agentData.agents || agentData || []).map((a) => a.paw);
-      const isSpecial = paw === "__ALL__" || paw === "__TAGS__";
-      const effectivePaw = (isSpecial || livePaws.includes(paw)) ? paw : "__ALL__";
-      const idx = _allChains.findIndex((x) => x.id === id);
-      if (idx >= 0) _allChains[idx] = Object.assign({}, _allChains[idx], { agent_paw: effectivePaw });
-      _execWithTarget("chain", id, effectivePaw).catch((e) => alert("[ERROR] " + e.message));
-    }).catch(() => _showQuickExecModal("chain", id));
-}
-function quickExecuteCampaign(id) {
-  Promise.all([apiFetch("/api/v2/campaigns/" + id), apiFetch("/api/v2/agents")])
-    .then(([camp, agentData]) => {
-      const paw = (camp.agent_paw || "").trim();
-      if (!paw) { _showQuickExecModal("campaign", id); return; }
-      const livePaws = (agentData.agents || agentData || []).map((a) => a.paw);
-      const isSpecial = paw === "__ALL__" || paw === "__TAGS__";
-      const effectivePaw = (isSpecial || livePaws.includes(paw)) ? paw : "__ALL__";
-      const idx = _allCampaigns.findIndex((x) => x.id === id);
-      if (idx >= 0) _allCampaigns[idx] = Object.assign({}, _allCampaigns[idx], { agent_paw: effectivePaw });
-      _execWithTarget("campaign", id, effectivePaw).catch((e) => alert("[ERROR] " + e.message));
-    }).catch(() => _showQuickExecModal("campaign", id));
-}
+function quickExecuteScript(id)   { _showQuickExecModal("script",   id); }
+function quickExecuteChain(id)    { _showQuickExecModal("chain",    id); }
+function quickExecuteCampaign(id) { _showQuickExecModal("campaign", id); }
 
 function exportCampaignJSON() {
   const data = {
@@ -3306,8 +2571,7 @@ function _renderCampChainNodeHTML(node, branch, parallelId) {
       <div class="csn-tactic" style="color:var(--accent)">CHAIN</div>
       <div class="csn-name">${escHtml(node.chain_name || "Unknown Chain")}</div>
       <div class="csn-actions">
-        <button class="btn btn-secondary btn-sm" onclick="openCampNodeChain('${nid}')">Open</button>
-        <button class="btn btn-secondary btn-sm" onclick="replaceCampChain('${nid}','${br}','${pid}')">Change</button>
+        <button class="btn btn-secondary btn-sm" onclick="replaceCampChain('${nid}','${br}','${pid}')">Open</button>
         <button class="btn btn-danger btn-sm"    onclick="removeCampNode('${nid}','${br}','${pid}')">Remove</button>
       </div>
     </div>`;
@@ -3494,58 +2758,6 @@ function replaceCampChain(nodeId, branch, parallelIdStr) {
 
 // ── Remove node ───────────────────────────────────────────────────────────────
 
-// ── Open chain detail from campaign node ────────────────────────────────────────
-
-function _findCampNodeInTree(nodes, nodeId) {
-  for (const n of nodes) {
-    if (n.id === nodeId) return n;
-    if (n.type === "parallel") {
-      for (const branch of (n.branches || [])) {
-        const r = _findCampNodeInTree(branch, nodeId);
-        if (r) return r;
-      }
-    }
-  }
-  return null;
-}
-
-async function openCampNodeChain(nodeId) {
-  const node = _findCampNodeInTree(_editingCampaign.nodes, nodeId);
-  if (!node || !node.chain_id) { alert("Chain not found in campaign."); return; }
-  let chain = (_allChains || []).find((c) => String(c.id) === String(node.chain_id));
-  if (!chain) {
-    try {
-      chain = await apiFetch("/api/v2/chains/" + node.chain_id);
-    } catch (e) {
-      alert("Could not load chain: " + e.message);
-      return;
-    }
-  }
-  document.getElementById("cdm-title").textContent = chain.name || "Chain Detail";
-  const descEl = document.getElementById("cdm-desc");
-  if (descEl) descEl.textContent = chain.description || "";
-  const scriptNodes = (chain.flow && chain.flow.nodes ? chain.flow.nodes : [])
-    .filter((n) => n.type === "script" || !n.type);
-  const tbody = document.getElementById("cdm-tbody");
-  if (!scriptNodes.length) {
-    tbody.innerHTML = "<tr><td colspan=\"4\" class=\"empty-row\">No scripts in this chain</td></tr>";
-  } else {
-    tbody.innerHTML = scriptNodes.map((n, i) =>
-      "<tr>" +
-      "<td>" + (i + 1) + "</td>" +
-      "<td>" + escHtml(n.tactic || "-") + "</td>" +
-      "<td>" + escHtml(n.tcode  || "-") + "</td>" +
-      "<td>" + escHtml(n.script_name || "-") + "</td>" +
-      "</tr>"
-    ).join("");
-  }
-  document.getElementById("chainDetailModal").classList.remove("hidden");
-}
-
-function closeChainDetailModal() {
-  document.getElementById("chainDetailModal").classList.add("hidden");
-}
-
 function removeCampNode(nodeId, branch, parallelIdStr) {
   if (!confirm("Remove this node and all nodes that follow it in this branch?")) return;
   const parallelId = (parallelIdStr === "null") ? null : parallelIdStr;
@@ -3623,16 +2835,12 @@ function _campWalkAndModifyParallel(nodes, parallelNodeId, fn) {
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 
 (function init() {
-  initAuth();
   checkHealth();
   refreshDashboard();
-  checkActiveWorkspace();
   setInterval(checkHealth, 30000);
   setInterval(() => {
     const activePage = document.querySelector(".page.active");
-    if (!activePage) return;
-    if (activePage.id === "page-dashboard") refreshDashboard();
-    if (activePage.id === "page-agents") loadAgents();
+    if (activePage && activePage.id === "page-dashboard") refreshDashboard();
   }, REFRESH_INTERVAL);
 
   // Try to load script count for stat
@@ -3643,8 +2851,93 @@ function _campWalkAndModifyParallel(nodes, parallelNodeId, fn) {
   // Unsaved-changes tracking: mark dirty on any input/change in each editor
   const smModal = document.getElementById("scriptModal");
   if (smModal) smModal.addEventListener("input", () => { _scriptDirty = true; });
+
   const chainEditor = document.getElementById("chain-editor-view");
   if (chainEditor) chainEditor.addEventListener("input", () => { _chainDirty = true; });
+
   const campEditor = document.getElementById("campaign-editor-view");
   if (campEditor) campEditor.addEventListener("input", () => { _campaignDirty = true; });
 })();
+
+// ─── API Keys management ─────────────────────────────────────────────────────
+
+async function loadApiKeys() {
+  const tbody = document.getElementById("apiKeysTableBody");
+  if (!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="4" class="empty-row">Loading...</td></tr>`;
+  try {
+    const keys = await apiFetch("/api/v2/api-keys");
+    if (!Array.isArray(keys) || !keys.length) {
+      tbody.innerHTML = `<tr><td colspan="4" class="empty-row">No API keys created yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = keys.map((k) => `
+      <tr>
+        <td>${escHtml(k.name)}</td>
+        <td><code>${escHtml(k.key_prefix)}...</code></td>
+        <td>${escHtml(k.created_at)}</td>
+        <td style="text-align:right">
+          <button class="btn btn-danger btn-sm" onclick="_deleteApiKey('${escHtml(k.id)}','${escHtml(k.name)}')">Revoke</button>
+        </td>
+      </tr>`).join("");
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="4" class="empty-row">[ERROR] ${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+function _showNewKeyModal() {
+  const input = document.getElementById("newKeyNameInput");
+  if (input) input.value = "";
+  const btn = document.getElementById("newKeyCreateBtn");
+  if (btn) btn.disabled = false;
+  document.getElementById("newKeyModal").classList.remove("hidden");
+}
+
+function _closeNewKeyModal() {
+  document.getElementById("newKeyModal").classList.add("hidden");
+}
+
+async function _createApiKeySubmit() {
+  const input = document.getElementById("newKeyNameInput");
+  const name = (input ? input.value : "").trim();
+  if (!name) { alert("Please enter a key name."); return; }
+  const btn = document.getElementById("newKeyCreateBtn");
+  if (btn) btn.disabled = true;
+  try {
+    const result = await apiFetch("/api/v2/api-keys", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    _closeNewKeyModal();
+    document.getElementById("revealKeyValue").textContent = result.key;
+    document.getElementById("keyRevealModal").classList.remove("hidden");
+    loadApiKeys();
+  } catch (err) {
+    alert("[ERROR] Could not create key: " + err.message);
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _closeKeyRevealModal() {
+  document.getElementById("keyRevealModal").classList.add("hidden");
+}
+
+function _copyRevealedKey() {
+  const val = document.getElementById("revealKeyValue").textContent;
+  navigator.clipboard.writeText(val).then(() => {
+    const btn = document.querySelector("#keyRevealModal .btn-primary");
+    if (btn) { const orig = btn.textContent; btn.textContent = "[COPIED]"; setTimeout(() => { btn.textContent = orig; }, 1500); }
+  }).catch(() => {
+    alert("Copy failed - please select and copy manually.");
+  });
+}
+
+async function _deleteApiKey(id, name) {
+  if (!confirm(`Revoke key "${name}"? This cannot be undone.`)) return;
+  try {
+    await apiFetch(`/api/v2/api-keys/${encodeURIComponent(id)}`, { method: "DELETE" });
+    loadApiKeys();
+  } catch (err) {
+    alert("[ERROR] Could not revoke key: " + err.message);
+  }
+}

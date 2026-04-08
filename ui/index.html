@@ -899,14 +899,19 @@
           </div>
           <div class="card-body">
             <p class="admin-hint">
-              Keys authorize requests to this Morgana server. The master key is set via
-              <code>MORGANA_API_KEY</code> env var and always works.
-              Keys created here are stored as SHA-256 hashes — save the full value when shown, it will not appear again.
+              Keys authorize requests to this Morgana server. There is no known default key —
+              use the master key from <code>server/data/master.key</code> (or the <code>MORGANA_API_KEY</code> env var) to bootstrap,
+              then create a named API key below and use that in Merlino and other clients.
+              Keys are stored as SHA-256 hashes — save the full value when shown, it will not appear again.
             </p>
-            <div style="margin-bottom:1rem;padding:.6rem .8rem;background:rgba(0,0,0,.2);border-radius:4px;border:1px solid rgba(255,255,255,.07)">
-              <span style="font-size:.82rem;color:var(--text-muted)">Browser session key (saved in localStorage, used by this tab):</span>
-              <div style="display:flex;gap:.5rem;align-items:center;margin-top:.4rem">
-                <input type="password" id="apiKeyInput" class="search-input" style="max-width:300px;font-size:.82rem" placeholder="Paste key here" />
+            <div style="margin-bottom:1rem;padding:.6rem .8rem;background:rgba(248,113,113,.07);border-radius:4px;border:1px solid rgba(248,113,113,.25)">
+              <span style="font-size:.82rem;color:#f87171;font-weight:600">[SETUP] Master key (first-run)</span>
+              <p style="font-size:.8rem;color:var(--text-muted);margin:.3rem 0 .5rem">
+                On first run, Morgana generates a random master key saved in <code>server/data/master.key</code> and printed in the server log.
+                Paste it below to authenticate this browser tab, then create a named API key and use that from now on.
+              </p>
+              <div style="display:flex;gap:.5rem;align-items:center">
+                <input type="password" id="apiKeyInput" class="search-input" style="max-width:340px;font-size:.82rem" placeholder="Paste master key from server/data/master.key" />
                 <button class="btn btn-secondary" style="font-size:.8rem;padding:4px 12px" onclick="saveApiKey()">Save</button>
                 <span id="apiKeySaved" class="admin-hint" style="display:none">[SAVED]</span>
               </div>

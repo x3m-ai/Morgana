@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from config import settings
+from core.auth import require_api_key
 from database import get_db
 from models.job import Job
 from models.test import Test
@@ -15,13 +16,8 @@ log = logging.getLogger("morgana.router.jobs")
 router = APIRouter()
 
 
-def _auth(key: Optional[str] = Header(None, alias="KEY")):
-    if key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-
 @router.get("/{job_id}")
-def get_job(job_id: str, db: Session = Depends(get_db), _=Depends(_auth)):
+def get_job(job_id: str, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     """Return current status + output of a job (used by UI to poll for results)."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:

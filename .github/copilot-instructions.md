@@ -39,11 +39,30 @@ Morgana is the X3M.AI Red Team execution platform, replacing Caldera. Windows-na
 | **Agent** | OS Service on a target machine | Agent |
 | **Job** | Internal dispatch record (server -> agent) | Task |
 
-## QUICK START
+## SERVER MANAGER: Morgana.ps1
+
+All server operations go through `Morgana.ps1` (root of the repo).
 
 ```powershell
-.\Start-Morgana.ps1           # Start (or restart)
-.\Start-Morgana.ps1 -NoWindow # Background mode
+# Process-based (dev, no service installed)
+.\Morgana.ps1 start              # foreground
+.\Morgana.ps1 start 8888 -NoWindow  # background hidden
+.\Morgana.ps1 stop
+.\Morgana.ps1 restart
+.\Morgana.ps1 status
+
+# NT Service (requires Administrator)
+.\Morgana.ps1 install                          # errors-only to Event Viewer, manual start
+.\Morgana.ps1 install -LogLevel INFO -AutoStart # file log + auto-start at boot
+.\Morgana.ps1 start    # sc start (service path) or process-based fallback
+.\Morgana.ps1 stop
+.\Morgana.ps1 restart
+.\Morgana.ps1 uninstall
 ```
+
+**Service name:** `Morgana`  
+**Service script:** `server/morgana_service.py` (pywin32, requires `pywin32>=305` in venv)  
+**Logging:** lifecycle events always to Windows Application Event Log (source=Morgana); app-level file log at `server/logs/service.log` only if `-LogLevel` was set at install time (stored in registry `HKLM\...\Services\Morgana\Parameters\LogLevel`).  
+**Recovery:** auto-restart on failure (configured by `Morgana.ps1 install`).  
 
 Web UI: `http://localhost:8888/ui/`

@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from config import settings
+from core.auth import require_api_key
 from database import get_db
 from models.agent import Agent
 from models.test import Test
@@ -15,11 +16,6 @@ from models.job import Job
 
 log = logging.getLogger("morgana.router.ops_graph")
 router = APIRouter()
-
-
-def _require_api_key(key: Optional[str] = Header(None, alias="KEY")):
-    if key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
 
 
 class OpsGraphRequest(BaseModel):
@@ -31,7 +27,7 @@ class OpsGraphRequest(BaseModel):
 async def ops_graph(
     body: OpsGraphRequest,
     db: Session = Depends(get_db),
-    _: None = Depends(_require_api_key),
+    _: None = Depends(require_api_key),
 ):
     since = datetime.utcnow() - timedelta(minutes=body.window_minutes)
     tests = db.query(Test).filter(Test.created_at >= since).all()
@@ -71,7 +67,7 @@ async def problem_details(
     window_minutes: int = Query(60),
     limit: int = Query(20),
     db: Session = Depends(get_db),
-    _: None = Depends(_require_api_key),
+    _: None = Depends(require_api_key),
 ):
     test_id = problem_id.replace("prob-", "")
     test = db.query(Test).filter(Test.id == test_id).first()
@@ -99,7 +95,7 @@ async def operation_details(
     window_minutes: int = Query(60),
     limit: int = Query(20),
     db: Session = Depends(get_db),
-    _: None = Depends(_require_api_key),
+    _: None = Depends(require_api_key),
 ):
     test = db.query(Test).filter(
         (Test.id == operation_id) | (Test.operation_id == operation_id)
@@ -124,7 +120,7 @@ async def agent_details(
     window_minutes: int = Query(60),
     limit: int = Query(20),
     db: Session = Depends(get_db),
-    _: None = Depends(_require_api_key),
+    _: None = Depends(require_api_key),
 ):
     ag = db.query(Agent).filter(Agent.paw == agent_paw).first()
     if not ag:

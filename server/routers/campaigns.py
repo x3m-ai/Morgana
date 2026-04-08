@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from config import settings
+from core.auth import require_api_key
 from database import SessionLocal, get_db
 from models.campaign import Campaign
 from models.campaign_execution import CampaignExecution
@@ -22,11 +23,6 @@ from routers.chains import _run_chain as _run_chain_fn
 
 log = logging.getLogger("morgana.router.campaigns")
 router = APIRouter()
-
-
-def _require_api_key(key: Optional[str] = Header(None, alias="KEY")):
-    if key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
 
 
 # ─── Pydantic schemas ─────────────────────────────────────────────────────────
@@ -97,12 +93,12 @@ def _exec_to_dict(e: CampaignExecution) -> dict:
 # ─── CRUD ─────────────────────────────────────────────────────────────────────
 
 @router.get("")
-def list_campaigns(db: Session = Depends(get_db), _: None = Depends(_require_api_key)):
+def list_campaigns(db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     return [_campaign_to_dict(c) for c in db.query(Campaign).order_by(Campaign.created_at.desc()).all()]
 
 
 @router.post("")
-def create_campaign(body: CampaignCreate, db: Session = Depends(get_db), _: None = Depends(_require_api_key)):
+def create_campaign(body: CampaignCreate, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     c = Campaign(
         id=str(uuid.uuid4()),
         name=body.name,
@@ -118,13 +114,13 @@ def create_campaign(body: CampaignCreate, db: Session = Depends(get_db), _: None
 
 
 @router.get("/executions")
-def list_executions(db: Session = Depends(get_db), _: None = Depends(_require_api_key)):
+def list_executions(db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     execs = db.query(CampaignExecution).order_by(CampaignExecution.started_at.desc()).limit(50).all()
     return [_exec_to_dict(e) for e in execs]
 
 
 @router.get("/executions/{exec_id}/log")
-def get_execution_log(exec_id: str, db: Session = Depends(get_db), _: None = Depends(_require_api_key)):
+def get_execution_log(exec_id: str, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     e = db.query(CampaignExecution).filter(CampaignExecution.id == exec_id).first()
     if not e:
         raise HTTPException(status_code=404, detail="Execution not found")
@@ -136,7 +132,7 @@ def get_execution_log(exec_id: str, db: Session = Depends(get_db), _: None = Dep
 
 
 @router.get("/{campaign_id}")
-def get_campaign(campaign_id: str, db: Session = Depends(get_db), _: None = Depends(_require_api_key)):
+def get_campaign(campaign_id: str, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     c = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     if not c:
         raise HTTPException(status_code=404, detail="Campaign not found")
@@ -144,7 +140,7 @@ def get_campaign(campaign_id: str, db: Session = Depends(get_db), _: None = Depe
 
 
 @router.put("/{campaign_id}")
-def update_campaign(campaign_id: str, body: CampaignUpdate, db: Session = Depends(get_db), _: None = Depends(_require_api_key)):
+def update_campaign(campaign_id: str, body: CampaignUpdate, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     c = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     if not c:
         raise HTTPException(status_code=404, detail="Campaign not found")
@@ -164,7 +160,7 @@ def update_campaign(campaign_id: str, body: CampaignUpdate, db: Session = Depend
 
 
 @router.delete("/executions")
-def clear_campaign_executions(db: Session = Depends(get_db), _: None = Depends(_require_api_key)):
+def clear_campaign_executions(db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     """Delete all campaign execution records."""
     count = db.query(CampaignExecution).delete(synchronize_session=False)
     db.commit()
@@ -173,7 +169,7 @@ def clear_campaign_executions(db: Session = Depends(get_db), _: None = Depends(_
 
 
 @router.delete("/{campaign_id}")
-def delete_campaign(campaign_id: str, db: Session = Depends(get_db), _: None = Depends(_require_api_key)):
+def delete_campaign(campaign_id: str, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     c = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     if not c:
         raise HTTPException(status_code=404, detail="Campaign not found")
@@ -185,7 +181,7 @@ def delete_campaign(campaign_id: str, db: Session = Depends(get_db), _: None = D
 
 
 @router.post("/{campaign_id}/execute")
-def execute_campaign(campaign_id: str, body: ExecuteRequest, db: Session = Depends(get_db), _: None = Depends(_require_api_key)):
+def execute_campaign(campaign_id: str, body: ExecuteRequest, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     c = db.query(Campaign).filter(Campaign.id == campaign_id).first()
     if not c:
         raise HTTPException(status_code=404, detail="Campaign not found")

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from config import settings
+from core.auth import require_api_key
 from database import get_db
 from models.agent import Agent
 from models.test import Test
@@ -14,18 +15,13 @@ from models.job import Job
 router = APIRouter()
 
 
-def _require_api_key(key: Optional[str] = Header(None, alias="KEY")):
-    if key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
-
 class AgentPatch(BaseModel):
     alias: Optional[str] = None
     beacon_interval: Optional[int] = None  # seconds, 5-3600; propagated on next poll
 
 
 @router.get("/agents")
-async def list_agents(db: Session = Depends(get_db), _: None = Depends(_require_api_key)):
+async def list_agents(db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     agents = db.query(Agent).all()
     return [{
         "paw": a.paw,
@@ -42,7 +38,7 @@ async def list_agents(db: Session = Depends(get_db), _: None = Depends(_require_
 
 
 @router.patch("/agents/{paw}")
-async def patch_agent(paw: str, body: AgentPatch, db: Session = Depends(get_db), _: None = Depends(_require_api_key)):
+async def patch_agent(paw: str, body: AgentPatch, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     agent = db.query(Agent).filter(Agent.paw == paw).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -60,7 +56,7 @@ async def patch_agent(paw: str, body: AgentPatch, db: Session = Depends(get_db),
 
 
 @router.delete("/agents/{paw}")
-async def delete_agent(paw: str, db: Session = Depends(get_db), _: None = Depends(_require_api_key)):
+async def delete_agent(paw: str, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     agent = db.query(Agent).filter(Agent.paw == paw).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -76,7 +72,7 @@ async def delete_agent(paw: str, db: Session = Depends(get_db), _: None = Depend
 async def purge_stale_agents(
     older_than_hours: int = Query(default=24, ge=1),
     db: Session = Depends(get_db),
-    _: None = Depends(_require_api_key)
+    _: str = Depends(require_api_key)
 ):
     """Delete agents whose last_seen is older than `older_than_hours` hours."""
     cutoff = datetime.utcnow() - timedelta(hours=older_than_hours)

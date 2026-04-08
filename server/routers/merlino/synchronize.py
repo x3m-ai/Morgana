@@ -18,6 +18,7 @@ from models.agent import Agent
 from models.test import Test
 from models.job import Job
 from models.script import Script
+from core.auth import require_api_key
 from core.job_queue import job_queue
 
 log = logging.getLogger("morgana.router.synchronize")
@@ -46,16 +47,11 @@ class SyncResponse(BaseModel):
     operations: list
 
 
-def _require_api_key(key: Optional[str] = Header(None, alias="KEY")):
-    if key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
-
 @router.post("/synchronize")
 async def synchronize(
     payload: List[MerlinoTestPayload],
     db: Session = Depends(get_db),
-    _: None = Depends(_require_api_key),
+    _: str = Depends(require_api_key),
 ):
     created = 0
     updated = 0

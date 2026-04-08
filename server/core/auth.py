@@ -29,17 +29,33 @@ def hash_key(key: str) -> str:
 
 def require_api_key(
     key: Optional[str] = Header(None, alias="KEY"),
+    authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ) -> str:
-    """FastAPI dependency — raise 401 if the KEY header is missing or invalid."""
+    """
+    FastAPI dependency - raise 401 if no valid auth is provided.
+    Accepts:
+      1. Authorization: Bearer <JWT>  (browser UI / JWT session)
+      2. KEY: <master_key>            (Merlino add-in / direct API)
+      3. KEY: <db_api_key>            (named DB-stored API keys)
+    """
+    # 1. JWT Bearer token (browser UI)
+    if authorization and authorization.startswith("Bearer "):
+        from jose import JWTError, jwt as _jwt
+        try:
+            _jwt.decode(authorization[7:], settings.secret_key, algorithms=["HS256"])
+            return "__jwt__"
+        except JWTError:
+            pass  # fall through to KEY check
+
     if not key:
         raise HTTPException(status_code=401, detail="API key required")
 
-    # 1. Master env-var key (always works even if DB is empty)
+    # 2. Master key (always works even if DB is empty)
     if key == settings.api_key:
         return key
 
-    # 2. DB-stored keys (checked by hash — plaintext never stored)
+    # 3. DB-stored keys (checked by hash - plaintext never stored)
     from models.api_key import ApiKey
     khash = hash_key(key)
     db_key = db.query(ApiKey).filter(ApiKey.key_hash == khash).first()

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
 from config import settings
+from core.auth import require_api_key
 from database import get_db
 from models.script import Script
 from models.agent import Agent
@@ -27,11 +28,6 @@ from core.job_queue import job_queue
 
 log = logging.getLogger("morgana.router.scripts")
 router = APIRouter()
-
-
-def _auth(key: Optional[str] = Header(None, alias="KEY")):
-    if key != settings.api_key:
-        raise HTTPException(status_code=403, detail="Forbidden")
 
 
 @router.get("")
@@ -147,7 +143,7 @@ def create_script(payload: dict, db: Session = Depends(get_db)):
 
 
 @router.delete("/{script_id}", status_code=204)
-def delete_script(script_id: str, db: Session = Depends(get_db), _=Depends(_auth)):
+def delete_script(script_id: str, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     from models.job import Job
     from models.test import Test
     from models.chain import ChainStep
@@ -164,7 +160,7 @@ def delete_script(script_id: str, db: Session = Depends(get_db), _=Depends(_auth
 
 
 @router.put("/{script_id}")
-def update_script(script_id: str, payload: dict, db: Session = Depends(get_db), _=Depends(_auth)):
+def update_script(script_id: str, payload: dict, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     s = db.query(Script).filter(Script.id == script_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Script not found")
@@ -193,7 +189,7 @@ def update_script(script_id: str, payload: dict, db: Session = Depends(get_db), 
 
 
 @router.post("/{script_id}/execute", status_code=201)
-def execute_script(script_id: str, payload: dict, db: Session = Depends(get_db), _=Depends(_auth)):
+def execute_script(script_id: str, payload: dict, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     """Run a script on a specific agent immediately (creates Test + Job + enqueues)."""
     s = db.query(Script).filter(Script.id == script_id).first()
     if not s:
@@ -255,7 +251,7 @@ def execute_script(script_id: str, payload: dict, db: Session = Depends(get_db),
 
 
 @router.post("/execute-adhoc", status_code=201)
-def execute_adhoc(payload: dict, db: Session = Depends(get_db), _=Depends(_auth)):
+def execute_adhoc(payload: dict, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     """Execute a command on an agent immediately without saving a Script first.
 
     Body: {"command": "...", "cleanup_command": "", "executor": "powershell|cmd|bash", "paw": "..."}

@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from config import settings
+from core.auth import require_api_key
 from database import get_db
 from models.chain import Chain
 from models.chain_execution import ChainExecution
@@ -43,11 +44,6 @@ class MerlinoTestRow(BaseModel):
 # ---------------------------------------------------------------------------
 # Auth dependency
 # ---------------------------------------------------------------------------
-
-def _require_api_key(key: Optional[str] = Header(None, alias="KEY")) -> None:
-    if key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -147,7 +143,7 @@ def _fmt_dt(dt) -> str:
 def synchronize_morgana(
     payload: List[MerlinoTestRow],
     db: Session = Depends(get_db),
-    _: None = Depends(_require_api_key),
+    _: str = Depends(require_api_key),
 ):
     """
     Sync Merlino Tests table with Morgana Chains.

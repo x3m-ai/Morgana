@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from config import settings
+from core.auth import require_api_key
 from database import get_db
 from models.agent import Agent
 from models.test import Test
@@ -16,18 +17,13 @@ log = logging.getLogger("morgana.router.realtime")
 router = APIRouter()
 
 
-def _require_api_key(key: Optional[str] = Header(None, alias="KEY")):
-    if key != settings.api_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
-
 @router.get("/realtime")
 async def realtime(
     window: str = Query("15m"),
     include_timeline: bool = Query(True),
     timeline_limit: int = Query(250),
     db: Session = Depends(get_db),
-    _: None = Depends(_require_api_key),
+    _: str = Depends(require_api_key),
 ):
     window_map = {"5m": 5, "15m": 15, "1h": 60, "6h": 360, "24h": 1440}
     minutes = window_map.get(window, 15)

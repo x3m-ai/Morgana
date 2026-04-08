@@ -4,9 +4,38 @@ All settings loaded from environment variables with sensible defaults.
 """
 
 import os
+import secrets
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
+
+# Path to persisted auto-generated master key (used when MORGANA_API_KEY env var is not set)
+_MASTER_KEY_FILE = BASE_DIR / "data" / "master.key"
+
+
+def _get_or_generate_master_key() -> str:
+    """
+    Return the master API key.
+    Priority:
+      1. MORGANA_API_KEY environment variable (explicit override, e.g. NSSM config)
+      2. Persisted key in server/data/master.key (auto-generated on first run)
+    The key is NEVER a known default. On first run a random key is generated,
+    saved to master.key and printed prominently in the server log at startup.
+    """
+    from_env = os.getenv("MORGANA_API_KEY", "")
+    if from_env:
+        return from_env
+
+    if _MASTER_KEY_FILE.exists():
+        stored = _MASTER_KEY_FILE.read_text().strip()
+        if stored:
+            return stored
+
+    # First run: generate a cryptographically random key
+    key = "mrg_" + secrets.token_hex(32)
+    _MASTER_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _MASTER_KEY_FILE.write_text(key)
+    return key
 
 
 class Settings:
@@ -16,7 +45,7 @@ class Settings:
     host: str = os.getenv("MORGANA_HOST", "0.0.0.0")
     port: int = int(os.getenv("MORGANA_PORT", "8888"))
     debug: bool = os.getenv("MORGANA_DEBUG", "false").lower() == "true"
-    api_key: str = os.getenv("MORGANA_API_KEY", "MORGANA_ADMIN_KEY")
+    api_key: str = _get_or_generate_master_key()
 
     # CORS - allow Merlino (Excel Add-in) and local UI
     cors_origins: list = [

@@ -128,6 +128,12 @@ async def lifespan(app: FastAPI):
     log.info("[START] Morgana Server v%s", settings.version)
     log.info("[START] Database: %s", settings.db_path)
 
+    # Log master key location / value so admin can configure clients on first run
+    from config import _MASTER_KEY_FILE as _mkf
+    if not os.getenv("MORGANA_API_KEY", ""):
+        log.info("[SECURITY] Master key loaded from: %s", _mkf)
+    log.info("[SECURITY] *** MASTER API KEY: %s ***", settings.api_key)
+
     init_db()
     log.info("[START] Database initialized")
 

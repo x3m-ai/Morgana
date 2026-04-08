@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from config import settings
+from core.auth import require_api_key
 from database import get_db
 from models.tag import TagDefinition, TagAssignment, TagWorkspace, TAG_TYPES, ENTITY_TYPES
 from models.agent import Agent
@@ -43,13 +44,6 @@ from core.tag_selector import resolve_agents, filter_entities, parse_selector
 
 log = logging.getLogger("morgana.router.tags")
 router = APIRouter()
-
-
-# ── Auth ────────────────────────────────────────────────────────────────────
-
-def _auth(key: Optional[str] = Header(None, alias="KEY")):
-    if key != settings.api_key:
-        raise HTTPException(status_code=403, detail="Forbidden")
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -89,7 +83,7 @@ def list_tags(
     runtime_only: bool = Query(False),
     filterable_only: bool = Query(False),
     db: Session = Depends(get_db),
-    _=Depends(_auth),
+    _: str = Depends(require_api_key),
 ):
     q = db.query(TagDefinition)
     if namespace:
@@ -108,7 +102,7 @@ def list_tags(
 
 
 @router.post("", status_code=201)
-def create_tag(payload: dict, db: Session = Depends(get_db), _=Depends(_auth)):
+def create_tag(payload: dict, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     label = (payload.get("label") or "").strip()
     key = (payload.get("key") or label).strip().lower()
     if not label:
@@ -173,7 +167,7 @@ def create_tag(payload: dict, db: Session = Depends(get_db), _=Depends(_auth)):
 
 
 @router.put("/{tag_id}")
-def update_tag(tag_id: str, payload: dict, db: Session = Depends(get_db), _=Depends(_auth)):
+def update_tag(tag_id: str, payload: dict, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     tag = db.query(TagDefinition).filter(TagDefinition.id == tag_id).first()
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
@@ -228,7 +222,7 @@ def update_tag(tag_id: str, payload: dict, db: Session = Depends(get_db), _=Depe
 
 
 @router.delete("/{tag_id}", status_code=204)
-def delete_tag(tag_id: str, db: Session = Depends(get_db), _=Depends(_auth)):
+def delete_tag(tag_id: str, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     tag = db.query(TagDefinition).filter(TagDefinition.id == tag_id).first()
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
@@ -245,7 +239,7 @@ def delete_tag(tag_id: str, db: Session = Depends(get_db), _=Depends(_auth)):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/namespaces")
-def list_namespaces(db: Session = Depends(get_db), _=Depends(_auth)):
+def list_namespaces(db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     from sqlalchemy import distinct
     rows = db.query(distinct(TagDefinition.namespace)).order_by(TagDefinition.namespace).all()
     return [r[0] for r in rows]
@@ -258,7 +252,7 @@ def list_namespaces(db: Session = Depends(get_db), _=Depends(_auth)):
 @router.get("/entity/{entity_type}/{entity_id}")
 def get_entity_tags(
     entity_type: str, entity_id: str,
-    db: Session = Depends(get_db), _=Depends(_auth),
+    db: Session = Depends(get_db), _: str = Depends(require_api_key),
 ):
     if entity_type not in ENTITY_TYPES:
         raise HTTPException(status_code=422, detail=f"Unknown entity type: {entity_type}")
@@ -281,7 +275,7 @@ def get_entity_tags(
 @router.post("/entity/{entity_type}/{entity_id}", status_code=201)
 def assign_tag(
     entity_type: str, entity_id: str, payload: dict,
-    db: Session = Depends(get_db), _=Depends(_auth),
+    db: Session = Depends(get_db), _: str = Depends(require_api_key),
 ):
     if entity_type not in ENTITY_TYPES:
         raise HTTPException(status_code=422, detail=f"Unknown entity type: {entity_type}")
@@ -324,7 +318,7 @@ def assign_tag(
 @router.delete("/entity/{entity_type}/{entity_id}/{tag_id}", status_code=204)
 def remove_tag_assignment(
     entity_type: str, entity_id: str, tag_id: str,
-    db: Session = Depends(get_db), _=Depends(_auth),
+    db: Session = Depends(get_db), _: str = Depends(require_api_key),
 ):
     row = db.query(TagAssignment).filter(
         TagAssignment.tag_id == tag_id,
@@ -344,7 +338,7 @@ def remove_tag_assignment(
 @router.get("/effective/{entity_type}/{entity_id}")
 def get_effective_tags(
     entity_type: str, entity_id: str,
-    db: Session = Depends(get_db), _=Depends(_auth),
+    db: Session = Depends(get_db), _: str = Depends(require_api_key),
 ):
     """Return direct assignments. Inheritable propagation not implemented yet."""
     return get_entity_tags(entity_type, entity_id, db=db, _=_)
@@ -355,7 +349,7 @@ def get_effective_tags(
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/workspaces")
-def list_workspaces(db: Session = Depends(get_db), _=Depends(_auth)):
+def list_workspaces(db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     ws = db.query(TagWorkspace).order_by(TagWorkspace.name).all()
     result = [w.to_dict() for w in ws]
     # Annotate with agent preview count for active workspace
@@ -370,7 +364,7 @@ def list_workspaces(db: Session = Depends(get_db), _=Depends(_auth)):
 
 
 @router.post("/workspaces", status_code=201)
-def create_workspace(payload: dict, db: Session = Depends(get_db), _=Depends(_auth)):
+def create_workspace(payload: dict, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     name = (payload.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=422, detail="'name' is required")
@@ -404,7 +398,7 @@ def create_workspace(payload: dict, db: Session = Depends(get_db), _=Depends(_au
 @router.put("/workspaces/{workspace_id}")
 def update_workspace(
     workspace_id: str, payload: dict,
-    db: Session = Depends(get_db), _=Depends(_auth),
+    db: Session = Depends(get_db), _: str = Depends(require_api_key),
 ):
     ws = db.query(TagWorkspace).filter(TagWorkspace.id == workspace_id).first()
     if not ws:
@@ -432,7 +426,7 @@ def update_workspace(
 @router.delete("/workspaces/{workspace_id}", status_code=204)
 def delete_workspace(
     workspace_id: str,
-    db: Session = Depends(get_db), _=Depends(_auth),
+    db: Session = Depends(get_db), _: str = Depends(require_api_key),
 ):
     ws = db.query(TagWorkspace).filter(TagWorkspace.id == workspace_id).first()
     if not ws:
@@ -444,7 +438,7 @@ def delete_workspace(
 @router.post("/workspaces/{workspace_id}/activate")
 def activate_workspace(
     workspace_id: str,
-    db: Session = Depends(get_db), _=Depends(_auth),
+    db: Session = Depends(get_db), _: str = Depends(require_api_key),
 ):
     ws = db.query(TagWorkspace).filter(TagWorkspace.id == workspace_id).first()
     if not ws:
@@ -459,14 +453,14 @@ def activate_workspace(
 
 
 @router.delete("/workspaces/active", status_code=204)
-def deactivate_workspace(db: Session = Depends(get_db), _=Depends(_auth)):
+def deactivate_workspace(db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     db.query(TagWorkspace).update({"is_active": False})
     db.commit()
     log.info("[WORKSPACE] All workspaces deactivated")
 
 
 @router.get("/workspaces/active")
-def get_active_workspace(db: Session = Depends(get_db), _=Depends(_auth)):
+def get_active_workspace(db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     ws = db.query(TagWorkspace).filter(TagWorkspace.is_active == True).first()
     if not ws:
         return None
@@ -479,7 +473,7 @@ def get_active_workspace(db: Session = Depends(get_db), _=Depends(_auth)):
 
 @router.post("/query")
 def query_entities_by_selector(
-    payload: dict, db: Session = Depends(get_db), _=Depends(_auth),
+    payload: dict, db: Session = Depends(get_db), _: str = Depends(require_api_key),
 ):
     """
     Filter entities by a tag selector expression.
@@ -514,7 +508,7 @@ def query_entities_by_selector(
 
 @router.post("/resolve-agents")
 def resolve_agents_by_selector(
-    payload: dict, db: Session = Depends(get_db), _=Depends(_auth),
+    payload: dict, db: Session = Depends(get_db), _: str = Depends(require_api_key),
 ):
     """
     Resolve all online agents matching a tag selector.
@@ -551,7 +545,7 @@ def resolve_agents_by_entity(
     entity_type: str = Query(...),
     entity_id: str = Query(...),
     db: Session = Depends(get_db),
-    _=Depends(_auth),
+    _: str = Depends(require_api_key),
 ):
     """
     Return all agents that share at least one tag with the given entity.

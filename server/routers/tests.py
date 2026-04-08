@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from config import settings
+from core.auth import require_api_key
 from database import get_db
 from models.test import Test
 from models.job import Job
@@ -19,11 +20,6 @@ from models.agent import Agent
 
 log = logging.getLogger("morgana.router.tests")
 router = APIRouter()
-
-
-def _auth(key: Optional[str] = Header(None, alias="KEY")):
-    if key != settings.api_key:
-        raise HTTPException(status_code=403, detail="Forbidden")
 
 
 def _fmt(dt):
@@ -53,7 +49,7 @@ def _test_row(t: Test, agent: Optional[Agent] = None):
 def list_tests(
     limit: int = Query(200, le=1000),
     db: Session = Depends(get_db),
-    _=Depends(_auth),
+    _: str = Depends(require_api_key),
 ):
     tests = db.query(Test).order_by(Test.created_at.desc()).limit(limit).all()
     agents = {a.id: a for a in db.query(Agent).all()}
@@ -61,7 +57,7 @@ def list_tests(
 
 
 @router.get("/{test_id}")
-def get_test(test_id: str, db: Session = Depends(get_db), _=Depends(_auth)):
+def get_test(test_id: str, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     t = db.query(Test).filter(Test.id == test_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Test not found")
@@ -70,7 +66,7 @@ def get_test(test_id: str, db: Session = Depends(get_db), _=Depends(_auth)):
 
 
 @router.delete("/{test_id}", status_code=204)
-def delete_test(test_id: str, db: Session = Depends(get_db), _=Depends(_auth)):
+def delete_test(test_id: str, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     t = db.query(Test).filter(Test.id == test_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Test not found")
@@ -81,7 +77,7 @@ def delete_test(test_id: str, db: Session = Depends(get_db), _=Depends(_auth)):
 
 
 @router.delete("", status_code=204)
-def delete_all_tests(db: Session = Depends(get_db), _=Depends(_auth)):
+def delete_all_tests(db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     count = db.query(Test).count()
     # Delete jobs first (FK constraint: jobs.test_id -> tests.id)
     db.query(Job).delete(synchronize_session=False)

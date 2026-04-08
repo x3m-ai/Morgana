@@ -86,3 +86,6 @@ build/
 dist/
 
 morgana.pid
+
+# Auto-generated master API key - never commit
+server/data/master.key
