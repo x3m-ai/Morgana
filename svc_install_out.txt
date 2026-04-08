@@ -1,0 +1,20 @@
+﻿
+  ===============================================
+   Morgana Red Team Platform  --  Server Manager
+   X3M.AI Ltd
+  ===============================================
+
+   Action  : install
+   Port    : 8888
+   LogLevel: INFO
+   Startup : Automatic
+
+[MORGANA] Registering NT service (startup=auto) ...
+          Command: C:\Users\ninoc\OfficeAddinApps\Morgana\server\.venv\Scripts\python.exe 
+C:\Users\ninoc\OfficeAddinApps\Morgana\server\morgana_service.py --startup auto install
+Installing service Morgana
+copying helper dll 'C:\Users\ninoc\OfficeAddinApps\Morgana\server\.venv\Lib\site-packages\pywin32_system32\pywintypes311.dll' -> 'C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.11_3.11.2544.0_x64__qbz5n2kfra8p0\pywintypes311.dll'
+Error installing service: Access is denied. (5)
+          LogLevel 'INFO' written to registry (HKLM:\SYSTEM\CurrentControlSet\Services\Morgana\Parameters)
+[MORGANA] Configuring service recovery (auto-restart on failure) ...
+[ERROR]   Installation verification failed -- service not found after install.

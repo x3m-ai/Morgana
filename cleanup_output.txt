@@ -1,0 +1,9 @@
+﻿Killed PID 25408
+Morgana: STOP: The operation completed successfully.
+
+
+Service "Morgana" removed successfully!
+
+
+Service REMOVED OK
+Port 8888:   TCP    127.0.0.1:8888         127.0.0.1:54243        TIME_WAIT       0   TCP    127.0.0.1:8888         127.0.0.1:58514        TIME_WAIT       0   TCP    127.0.0.1:8888         127.0.0.1:61962        TIME_WAIT       0   TCP    127.0.0.1:8888         127.0.0.1:64225        TIME_WAIT       0

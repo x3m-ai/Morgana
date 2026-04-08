@@ -1,0 +1,49 @@
+﻿C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe install Morgana C:\Users\ninoc\OfficeAddinApps\Morgana\server\.venv\Scripts\python.exe
+C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe set Morgana AppParameters C:\Users\ninoc\OfficeAddinApps\Morgana\server\main.py
+C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe set Morgana AppDirectory C:\Users\ninoc\OfficeAddinApps\Morgana\server
+C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe set Morgana AppExit Default Restart
+C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe set Morgana AppEnvironmentExtra :MORGANA_LOG_LEVEL=INFO
+C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe set Morgana AppEnvironmentExtra +MORGANA_PORT=8888
+C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe set Morgana AppStdout C:\Users\ninoc\OfficeAddinApps\Morgana\server\logs\service.log
+C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe set Morgana AppStderr C:\Users\ninoc\OfficeAddinApps\Morgana\server\logs\service_error.log
+C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe set Morgana AppRotateFiles 1
+C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe set Morgana AppRotateOnline 1
+C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe set Morgana AppRotateBytes 20971520
+C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe set Morgana Description "X3M.AI Morgana Red Team Platform - FastAPI server for Purple Teaming operations."
+C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe set Morgana DisplayName "Morgana Red Team Platform"
+C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe set Morgana ObjectName LocalSystem
+C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe set Morgana Start SERVICE_AUTO_START
+C:\Users\ninoc\OfficeAddinApps\Morgana\tools\nssm.exe set Morgana Type SERVICE_WIN32_OWN_PROCESS
+
+Name    Status StartType
+----    ------ ---------
+Morgana Paused Automatic
+
+
+
+
+TimeGenerated : 07/04/2026 10:35:20
+EntryType     : Warning
+Message       : Service Morgana ran for less than 1500 milliseconds.
+                Restart will be delayed by 128000 milliseconds.
+
+TimeGenerated : 07/04/2026 10:35:20
+EntryType     : Information
+Message       : Service Morgana action for exit code 101 is Restart.
+                Attempting to restart C:\Users\ninoc\OfficeAddinApps\Morgana\server\.venv\Scripts\python.exe.
+
+TimeGenerated : 07/04/2026 10:35:20
+EntryType     : Information
+Message       : Killing PID 69604 in process tree of PID 69604 because service Morgana is stopping.
+
+TimeGenerated : 07/04/2026 10:35:20
+EntryType     : Information
+Message       : Killing process tree of process 69604 for service Morgana with exit code 101
+
+TimeGenerated : 07/04/2026 10:35:20
+EntryType     : Information
+Message       : Program C:\Users\ninoc\OfficeAddinApps\Morgana\server\.venv\Scripts\python.exe for service Morgana 
+                exited with return code 101.
+
+
+
