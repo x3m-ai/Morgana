@@ -72,6 +72,9 @@ server/config/secrets.json
 .env
 .env.local
 .env.*.local
+# Public certs - committed intentionally for distribution
+!server/certs/server.crt
+!server/certs/morgana-ca.cer
 
 # Distribution
 dist/

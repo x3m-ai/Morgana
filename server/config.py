@@ -22,6 +22,7 @@ class Settings:
     cors_origins: list = [
         "https://localhost:3000",
         "https://localhost:8888",
+        "https://merlino-addin.x3m.ai",  # production Excel add-in (CF Pages)
         "null",  # file:// origins (Excel Desktop add-in)
     ]
 
