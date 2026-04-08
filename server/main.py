@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import settings
 from database import init_db
-from routers.merlino import synchronize, realtime, ops_graph
+from routers.merlino import synchronize, realtime, ops_graph, synchronize_morgana, check_status as merlino_check_status
 from routers.agent import poll, register, result, heartbeat
 from routers.scripts import router as scripts_router
 from routers.admin import router as admin_router
@@ -174,6 +174,8 @@ app.add_middleware(
 app.include_router(synchronize.router, prefix="/api/v2/merlino", tags=["merlino"])
 app.include_router(realtime.router, prefix="/api/v2/merlino", tags=["merlino"])
 app.include_router(ops_graph.router, prefix="/api/v2/merlino", tags=["merlino"])
+app.include_router(synchronize_morgana.router, prefix="/api/v2/merlino", tags=["merlino"])
+app.include_router(merlino_check_status.router, prefix="/api/v2/merlino", tags=["merlino"])
 
 # Agent communication routes
 app.include_router(register.router, prefix="/api/v2/agent", tags=["agent"])
