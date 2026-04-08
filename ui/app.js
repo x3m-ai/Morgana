@@ -1535,6 +1535,19 @@ async function deleteChain(id) {
   }
 }
 
+async function deleteAllChains() {
+  if (!confirm("Delete ALL chains? This cannot be undone.")) return;
+  try {
+    const result = await apiFetch("/api/v2/chains", { method: "DELETE" });
+    _allChains = [];
+    _renderChainList();
+    loadChainExecutionsList();
+    alert(`Deleted ${result.deleted ?? 0} chain(s).`);
+  } catch (err) {
+    alert("Delete all failed: " + err.message);
+  }
+}
+
 async function duplicateChain(id) {
   try {
     const full = await apiFetch(`/api/v2/chains/${id}`);
