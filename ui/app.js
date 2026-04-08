@@ -1548,6 +1548,17 @@ async function deleteAllChains() {
   }
 }
 
+async function clearChainExecutions() {
+  if (!confirm("Clear all chain execution history? This cannot be undone.")) return;
+  try {
+    const result = await apiFetch("/api/v2/chains/executions", { method: "DELETE" });
+    loadChainExecutionsList();
+    alert(`Cleared ${result.cleared ?? 0} execution record(s).`);
+  } catch (err) {
+    alert("Clear log failed: " + err.message);
+  }
+}
+
 async function duplicateChain(id) {
   try {
     const full = await apiFetch(`/api/v2/chains/${id}`);
@@ -2372,6 +2383,17 @@ async function deleteCampaign(id) {
     loadCampaigns();
   } catch (err) {
     alert("Delete failed: " + err.message);
+  }
+}
+
+async function clearCampaignExecutions() {
+  if (!confirm("Clear all campaign execution history? This cannot be undone.")) return;
+  try {
+    const result = await apiFetch("/api/v2/campaigns/executions", { method: "DELETE" });
+    loadCampaignExecutionsList();
+    alert(`Cleared ${result.cleared ?? 0} execution record(s).`);
+  } catch (err) {
+    alert("Clear log failed: " + err.message);
   }
 }
 
