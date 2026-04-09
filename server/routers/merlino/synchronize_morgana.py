@@ -160,10 +160,13 @@ def synchronize_morgana(
         tcode = (row.tcode or "").strip().upper()
         existing_exec_id = (row.id or "").strip()
 
-        if not name or not tcode:
+        if not name:
             continue
 
-        chain_name = f"{name} {tcode}"
+        # Use name as-is -- Merlino now sends names that already include the TCode
+        # (e.g. "LSASS memory access via process handle T1003.001").
+        # Do NOT append tcode again or the chain name would have a double TCode.
+        chain_name = name
 
         # --- Ensure chain exists ---
         chain = db.query(Chain).filter(Chain.name == chain_name).first()
