@@ -144,9 +144,13 @@ async def lifespan(app: FastAPI):
             "[START] Atomic Red Team — loaded=%d updated=%d skipped=%d errors=%d",
             stats["loaded"], stats["updated"], stats["skipped"], stats["errors"],
         )
-        fixed = loader.fix_tactics()
-        if fixed:
-            log.info("[START] Tactic backfill: updated %d scripts", fixed)
+        # Only run fix_tactics when new/updated scripts were imported.
+        # If load_all used the fast-path (no YAML changes), tactics are already
+        # correct from the previous run — skip the expensive DB backfill.
+        if stats["loaded"] > 0 or stats["updated"] > 0:
+            fixed = loader.fix_tactics()
+            if fixed:
+                log.info("[START] Tactic backfill: updated %d scripts", fixed)
         # Share boot stats with admin router
         import routers.admin as _admin_router
         _admin_router._last_stats = stats
@@ -262,12 +266,52 @@ async def root_redirect():
 
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host=settings.host,
-        port=settings.port,
-        ssl_keyfile=settings.ssl_keyfile if settings.ssl_enabled else None,
-        ssl_certfile=settings.ssl_certfile if settings.ssl_enabled else None,
-        reload=settings.debug,
-        log_level="info",
-    )
+    if settings.ssl_enabled:
+        # Dual-server mode:
+        #   HTTPS on settings.port (8888)        -> Merlino / Excel add-in
+        #   HTTP  on settings.agent_port (8889)  -> Go agents (plain HTTP, no cert)
+        _agent_http_app = FastAPI(title="Morgana Agent Endpoint")
+        _agent_http_app.include_router(register.router, prefix="/api/v2/agent", tags=["agent"])
+        _agent_http_app.include_router(poll.router,     prefix="/api/v2/agent", tags=["agent"])
+        _agent_http_app.include_router(result.router,   prefix="/api/v2/agent", tags=["agent"])
+        _agent_http_app.include_router(heartbeat.router, prefix="/api/v2/agent", tags=["agent"])
+
+        @_agent_http_app.get("/health")
+        async def _agent_health():
+            return {"status": "ok", "version": settings.version}
+
+        async def _serve_dual():
+            https_cfg = uvicorn.Config(
+                app,
+                host=settings.host,
+                port=settings.port,
+                ssl_keyfile=settings.ssl_keyfile,
+                ssl_certfile=settings.ssl_certfile,
+                log_level="warning",
+            )
+            http_cfg = uvicorn.Config(
+                _agent_http_app,
+                host=settings.host,
+                port=settings.agent_port,
+                log_level="warning",
+            )
+            log.info(
+                "[START] Dual-server: HTTPS :%d (Merlino) + HTTP :%d (agents)",
+                settings.port, settings.agent_port,
+            )
+            await asyncio.gather(
+                uvicorn.Server(https_cfg).serve(),
+                uvicorn.Server(http_cfg).serve(),
+            )
+
+        asyncio.run(_serve_dual())
+    else:
+        uvicorn.run(
+            "main:app",
+            host=settings.host,
+            port=settings.port,
+            ssl_keyfile=None,
+            ssl_certfile=None,
+            reload=settings.debug,
+            log_level="info",
+        )

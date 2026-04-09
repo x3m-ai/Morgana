@@ -4,6 +4,7 @@ Parses atomics/ directory and imports scripts into the Morgana database.
 
 Behavior:
 - load_all()   : on each boot, upserts all scripts (insert new, update changed, skip identical)
+                 Fast-path: if no YAML file has changed since last run, skips all parsing.
 - reload_all() : full wipe of atomic-red-team scripts then re-import (use after submodule update)
 """
 
@@ -48,9 +49,37 @@ class AtomicLoader:
     def load_all(self) -> dict:
         """
         Boot-time loader. Upserts all Atomic scripts.
+        Fast-path: if the max mtime across all YAML files is unchanged since the
+        last successful run (stored in a stamp file), skip parsing entirely and
+        return immediately so the server starts in seconds instead of minutes.
         Returns {"loaded": int, "updated": int, "skipped": int, "errors": int}
         """
-        return self._run_import(wipe_first=False)
+        stamp_file = self.atomics_path.parent.parent / "server" / "db" / ".atomics_mtime_stamp"
+        yaml_files = list(self.atomics_path.rglob("T*.yaml"))
+        if yaml_files:
+            max_mtime = max(f.stat().st_mtime for f in yaml_files)
+            try:
+                if stamp_file.exists():
+                    stored = float(stamp_file.read_text().strip())
+                    if stored >= max_mtime:
+                        log.info("[ATOMIC] No changes since last load — skipping YAML parsing (fast-path)")
+                        return {"loaded": 0, "updated": 0, "skipped": len(yaml_files), "errors": 0}
+            except Exception:
+                pass  # any read/parse error: fall through to full import
+        else:
+            max_mtime = None
+
+        result = self._run_import(wipe_first=False)
+
+        # Write stamp only on success (no errors or partial failures indicate bad state)
+        if max_mtime is not None and result.get("errors", 0) == 0:
+            try:
+                stamp_file.parent.mkdir(parents=True, exist_ok=True)
+                stamp_file.write_text(str(max_mtime))
+            except Exception:
+                pass
+
+        return result
 
     def reload_all(self) -> dict:
         """
@@ -88,12 +117,24 @@ class AtomicLoader:
         return tactic_map
 
     def fix_tactics(self) -> int:
-        """One-time update: populate tactic field for all scripts with empty tactic."""
+        """One-time update: populate tactic field for all scripts with empty tactic.
+
+        Fast-path: if no scripts with an empty tactic exist, returns 0 immediately.
+        """
+        from database import SessionLocal
+        from models.script import Script
+
+        db = SessionLocal()
+        try:
+            # Quick count check before building the full tactic map
+            missing = db.query(Script.id).filter(Script.tactic == "").limit(1).first()
+            if missing is None:
+                return 0
+        finally:
+            db.close()
         tactic_map = self._build_tactic_map()
         if not tactic_map:
             return 0
-        from database import SessionLocal
-        from models.script import Script
         db = SessionLocal()
         try:
             scripts = db.query(Script).filter(Script.tactic == "").all()

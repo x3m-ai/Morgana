@@ -27,6 +27,22 @@ def hash_key(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
 
 
+def verify_key_value(key: str, db: Session) -> bool:
+    """Return True if *key* is valid (master key or active DB-stored key).
+
+    Used by endpoints that receive the key as a query parameter rather than
+    a header (e.g. WebSocket and console endpoints where custom headers are
+    not practical).
+    """
+    if not key:
+        return False
+    if key == settings.api_key:
+        return True
+    from models.api_key import ApiKey
+    khash = hash_key(key)
+    return db.query(ApiKey).filter(ApiKey.key_hash == khash).first() is not None
+
+
 def require_api_key(
     key: Optional[str] = Header(None, alias="KEY"),
     authorization: Optional[str] = Header(None),

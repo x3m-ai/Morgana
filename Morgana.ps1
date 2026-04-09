@@ -257,8 +257,8 @@ function Start-Server {
 
     $pythonExe = Get-PythonExe
 
-    # Detect SSL
-    $sslEnabled = ($env:MORGANA_SSL -eq "true") -or (Test-Path (Join-Path $ServerDir "certs\server.crt"))
+    # Detect SSL - only from env var, never auto-detect from cert file
+    $sslEnabled = ($env:MORGANA_SSL -eq "true")
     $scheme     = if ($sslEnabled) { "https" } else { "http" }
 
     Write-Step "Python  : $pythonExe"

@@ -24,7 +24,8 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from core import console_sessions
-from database import get_db
+from core.auth import verify_key_value
+from database import get_db, SessionLocal
 from models.agent import Agent
 
 log = logging.getLogger("morgana.console")
@@ -39,13 +40,14 @@ router = APIRouter()
 async def reset_session(
     paw: str,
     key: str = Query(default=""),
+    db: Session = Depends(get_db),
 ):
     """Force-close any active or pending console session for this agent.
 
     Called by the UI Reset button to clean up a stale session before
     opening a fresh console.
     """
-    if key != settings.api_key:
+    if not verify_key_value(key, db):
         raise HTTPException(status_code=403, detail="Unauthorized")
 
     sess = console_sessions.get(paw)
@@ -163,7 +165,7 @@ async def open_native_console(
       2. The TCP relay bridges the PowerShell window to /ws/{paw}.
       3. PowerShell uses Console.ReadKey($true) for raw input - bulletproof.
     """
-    if key != settings.api_key:
+    if not verify_key_value(key, db):
         raise HTTPException(status_code=403, detail="Unauthorized")
 
     # Reset any stale session first
@@ -340,7 +342,12 @@ async def browser_connect(
 ):
     """Browser connects here to start an interactive console session."""
     # Auth via query param (browser WebSocket API cannot send custom headers)
-    if key != settings.api_key:
+    db = SessionLocal()
+    try:
+        valid = verify_key_value(key, db)
+    finally:
+        db.close()
+    if not valid:
         await websocket.close(1008, "Unauthorized")
         return
 

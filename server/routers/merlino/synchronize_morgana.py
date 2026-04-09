@@ -22,9 +22,11 @@ from sqlalchemy.orm import Session
 from config import settings
 from core.auth import require_api_key
 from database import get_db
+from models.agent import Agent
 from models.chain import Chain
 from models.chain_execution import ChainExecution
 from models.script import Script
+from models.test import Test as TestRecord
 
 log = logging.getLogger("morgana.router.synchronize_morgana")
 
@@ -255,13 +257,53 @@ def synchronize_morgana(
             })
 
     db.commit()
+
+    # Fetch ALL Test records from Morgana and return them so Merlino can
+    # populate the Tests table with every execution (one row per Test).
+    agents_by_id = {a.id: a for a in db.query(Agent).all()}
+    all_tests = (
+        db.query(TestRecord)
+        .order_by(TestRecord.created_at.desc())
+        .limit(2000)
+        .all()
+    )
+    all_morgana_tests = []
+    for t in all_tests:
+        ag = agents_by_id.get(t.agent_id)
+        ag_str = f"{ag.hostname} [{ag.paw}]" if ag else ""
+        # Strip "chain:" prefix that is prepended when creating Test records in chains.py
+        name = (t.operation_name or "").removeprefix("chain:").strip()
+        tcode_val = t.tcode or ""
+        dur = _format_duration(t.started_at, t.finished_at)
+        state_out = _map_state(t.state or "")
+        all_morgana_tests.append({
+            "name":        name,
+            "tcode":       tcode_val,
+            "id":          t.id,
+            "state":       state_out,
+            "exit_code":   t.exit_code if t.exit_code is not None else "",
+            "date":        _fmt_dt(t.started_at or t.created_at),
+            "type":        "Test",
+            "agent":       ag_str,
+            "duration":    dur,
+            "created":     _fmt_dt(t.started_at),
+            "finished":    _fmt_dt(t.finished_at),
+            "stdout":      (t.stdout or "")[:500],
+            "description": (
+                f"Test: {name} | Agent: {ag_str} | "
+                f"Duration: {dur} | State: {state_out}"
+            ),
+        })
+
     log.info(
-        "[SYNC_MORGANA] Done: created_chains=%d synced_rows=%d",
+        "[SYNC_MORGANA] Done: created_chains=%d synced_rows=%d all_tests=%d",
         created_chains,
         len(rows_out),
+        len(all_morgana_tests),
     )
     return {
-        "created_chains": created_chains,
-        "synced_rows":    len(rows_out),
-        "rows":           rows_out,
+        "created_chains":    created_chains,
+        "synced_rows":       len(rows_out),
+        "rows":              rows_out,
+        "all_morgana_tests": all_morgana_tests,
     }
