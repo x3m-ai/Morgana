@@ -275,6 +275,8 @@ if __name__ == "__main__":
         _agent_http_app.include_router(poll.router,     prefix="/api/v2/agent", tags=["agent"])
         _agent_http_app.include_router(result.router,   prefix="/api/v2/agent", tags=["agent"])
         _agent_http_app.include_router(heartbeat.router, prefix="/api/v2/agent", tags=["agent"])
+        _agent_http_app.include_router(deploy_router, tags=["deploy"])
+        _agent_http_app.include_router(console_router, prefix="/api/v2/console", tags=["console"])
 
         @_agent_http_app.get("/health")
         async def _agent_health():

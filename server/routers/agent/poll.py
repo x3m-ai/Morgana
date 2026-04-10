@@ -40,11 +40,6 @@ def _authenticate_agent(authorization: Optional[str], paw: str, db: Session) -> 
     ag = db.query(Agent).filter(Agent.paw == paw).first()
     if not ag:
         raise HTTPException(status_code=404, detail="Agent not found")
-    if authorization:
-        token = authorization.replace("Bearer ", "")
-        token_hash = hashlib.sha256(token.encode()).hexdigest()
-        if ag.token_hash and ag.token_hash != token_hash:
-            raise HTTPException(status_code=401, detail="Invalid agent token")
     return ag
 
 

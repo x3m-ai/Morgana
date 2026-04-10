@@ -28,16 +28,27 @@ def hash_key(key: str) -> str:
 
 
 def verify_key_value(key: str, db: Session) -> bool:
-    """Return True if *key* is valid (master key or active DB-stored key).
+    """Return True if *key* is valid (master key, active DB-stored key, or JWT).
 
     Used by endpoints that receive the key as a query parameter rather than
     a header (e.g. WebSocket and console endpoints where custom headers are
     not practical).
+    Accepts JWT tokens so that browser sessions using JWT-only login can also
+    reach console endpoints without needing a separate API key in localStorage.
     """
     if not key:
         return False
+    # Master key
     if key == settings.api_key:
         return True
+    # JWT Bearer token (passed as ?key= from browser when no API key is stored)
+    try:
+        from jose import JWTError, jwt as _jwt
+        _jwt.decode(key, settings.secret_key, algorithms=["HS256"])
+        return True
+    except Exception:
+        pass
+    # DB-stored named API key
     from models.api_key import ApiKey
     khash = hash_key(key)
     return db.query(ApiKey).filter(ApiKey.key_hash == khash).first() is not None

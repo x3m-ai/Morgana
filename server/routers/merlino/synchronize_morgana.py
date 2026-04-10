@@ -26,7 +26,7 @@ from database import get_db
 from models.agent import Agent
 from models.chain import Chain
 from models.chain_execution import ChainExecution
-from models.script import Script
+from models.script import Script as ScriptModel
 from models.test import Test as TestRecord
 
 log = logging.getLogger("morgana.router.synchronize_morgana")
@@ -156,6 +156,8 @@ def synchronize_morgana(
     created_chains = 0
     rows_out = []
 
+    log.info("[SYNC_MORGANA] [START] payload_rows=%d", len(payload))
+
     for row in payload:
         name = (row.name or "").strip()
         tcode = (row.tcode or "").strip().upper()
@@ -265,25 +267,34 @@ def synchronize_morgana(
     # Fetch ALL Test records from Morgana (same source as the UI /api/v2/tests endpoint).
     # Tests are the individual script executions dispatched to agents.
     agents_by_id = {a.id: a for a in db.query(Agent).all()}
+    scripts_by_id = {s.id: s for s in db.query(ScriptModel).all()}
     all_tests = (
         db.query(TestRecord)
         .order_by(TestRecord.created_at.desc())
         .limit(2000)
         .all()
     )
+    log.info("[SYNC_MORGANA] TestRecord query returned %d rows", len(all_tests))
     all_morgana_tests = []
     for t in all_tests:
         ag = agents_by_id.get(t.agent_id)
         ag_str = f"{ag.hostname} [{ag.paw}]" if ag else ""
+        sc = scripts_by_id.get(t.script_id)
+        script_name = sc.name if sc else ""
         # Strip "chain:" prefix that is prepended when creating Test records in chains.py
         name = (t.operation_name or "").removeprefix("chain:").strip()
         tcode_val = t.tcode or ""
         dur = _format_duration(t.started_at, t.finished_at)
         state_out = _map_state(t.state or "")
         exit_code = t.exit_code if t.exit_code is not None else ""
+        log.debug(
+            "[SYNC_MORGANA] TestRecord id=%s name=%r tcode=%s state=%s agent=%s",
+            t.id, name, tcode_val, state_out, ag_str,
+        )
         all_morgana_tests.append({
             "name":        name,
             "tcode":       tcode_val,
+            "script_name": script_name,
             "id":          t.id,
             "state":       state_out,
             "exit_code":   exit_code,
@@ -301,7 +312,7 @@ def synchronize_morgana(
         })
 
     log.info(
-        "[SYNC_MORGANA] Done: created_chains=%d synced_rows=%d all_tests=%d",
+        "[SYNC_MORGANA] [DONE] created_chains=%d synced_rows=%d all_morgana_tests=%d",
         created_chains,
         len(rows_out),
         len(all_morgana_tests),

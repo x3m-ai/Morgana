@@ -32,6 +32,8 @@ def _test_row(t: Test, agent: Optional[Agent] = None):
         "tcode": t.tcode,
         "operation_name": t.operation_name,
         "adversary_name": t.adversary_name,
+        "script_id": t.script_id,
+        "script_name": t.script_name,
         "state": t.state,
         "exit_code": t.exit_code,
         "duration_ms": t.duration_ms,

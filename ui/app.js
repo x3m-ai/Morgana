@@ -64,6 +64,12 @@ function logOut() {
   window.location.replace("/ui/login.html");
 }
 
+// Per-page data + filter state
+let _allAgents = [];
+const _agentFilter    = { search: "", platform: "", status: "" };
+const _chainFilter    = { search: "", hasnodes: "" };
+const _campaignFilter = { search: "", haschains: "" };
+
 // Chain builder state
 let _allChains = [];
 let _allCampaigns = [];
@@ -240,37 +246,45 @@ function renderAgentsGrid(agents) {
 
 async function loadAgents() {
   try {
-    const agents = await apiFetch("/api/v2/agents");
-    const tbody = document.getElementById("agentsTableBody");
-    if (!agents.length) {
-      tbody.innerHTML = `<tr><td colspan="11" class="empty-row">No agents registered</td></tr>`;
-      return;
-    }
-    tbody.innerHTML = agents.map((a) => {
-      const nameCell = a.alias
-        ? `<span class="agent-alias" id="alias-label-${escHtml(a.paw)}">${escHtml(a.alias)}</span> <button class="rename-btn" onclick="startRenameAgent('${escHtml(a.paw)}','${escHtml(a.alias)}')" title="Rename">[edit]</button>`
-        : `<span class="agent-alias-unset" id="alias-label-${escHtml(a.paw)}">${escHtml(a.host || a.hostname || "?")}</span> <button class="rename-btn" onclick="startRenameAgent('${escHtml(a.paw)}','')" title="Set name">[name]</button>`;
-      return `
-      <tr id="agent-row-${escHtml(a.paw)}">
-        <td>${nameCell}</td>
-        <td><code style="font-size:11px">${escHtml(a.host || a.hostname || "?")} <span style="color:var(--text-muted)">${escHtml(a.paw)}</span></code></td>
-        <td>${escHtml(a.platform || "?")}</td>
-        <td>${escHtml(a.os_version || "-")}</td>
-        <td>${stateBadge(a.status)}</td>
-        <td>${fmtDate(a.last_seen)}</td>
-        <td><span class="beacon-click" id="beacon-${escHtml(a.paw)}" onclick="editAgentBeacon('${escHtml(a.paw)}', ${a.beacon_interval || 30})" title="Click to change beacon interval">${a.beacon_interval || 30}s</span></td>
-        <td>${a.tags ? escHtml(a.tags) : "-"}</td>
-        <td><span class="version-badge" title="Agent version">${escHtml(a.agent_version || "?")}</span></td>
-        <td style="white-space:nowrap">
-          <button class="btn btn-secondary btn-sm" onclick="openNativeConsole('${escHtml(a.paw)}')" title="Open native terminal window connected to this agent">Console</button>
-          <button class="console-reset-btn" onclick="resetAndRelaunchConsole('${escHtml(a.paw)}')" title="Kill current session and open a fresh console">Reset</button>
-        </td>
-        <td><button class="btn btn-danger btn-sm" onclick="deleteAgent('${escHtml(a.paw)}')" title="Remove agent">x</button></td>
-      </tr>`;
-    }).join("");
+    _allAgents = await apiFetch("/api/v2/agents");
+    _renderAgentStats(_allAgents);
+    applyAgentFilters();
   } catch (err) {
+    document.getElementById("agentsTableBody").innerHTML =
+      `<tr><td colspan="11" class="empty-row">Error: ${escHtml(err.message)}</td></tr>`;
     console.error("[AGENTS] Load failed:", err.message);
   }
+}
+
+function _renderAgentTable(agents) {
+  const tbody = document.getElementById("agentsTableBody");
+  if (!agents.length) {
+    const hasFilter = Object.values(_agentFilter).some(v => v !== "");
+    tbody.innerHTML = `<tr><td colspan="11" class="empty-row">${hasFilter ? "No agents match current filters" : "No agents registered"}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = agents.map((a) => {
+    const nameCell = a.alias
+      ? `<span class="agent-alias" id="alias-label-${escHtml(a.paw)}">${escHtml(a.alias)}</span> <button class="rename-btn" onclick="startRenameAgent('${escHtml(a.paw)}','${escHtml(a.alias)}')" title="Rename">[edit]</button>`
+      : `<span class="agent-alias-unset" id="alias-label-${escHtml(a.paw)}">${escHtml(a.host || a.hostname || "?")}</span> <button class="rename-btn" onclick="startRenameAgent('${escHtml(a.paw)}','')" title="Set name">[name]</button>`;
+    return `
+    <tr id="agent-row-${escHtml(a.paw)}">
+      <td>${nameCell}</td>
+      <td><code style="font-size:11px">${escHtml(a.host || a.hostname || "?")} <span style="color:var(--text-muted)">${escHtml(a.paw)}</span></code></td>
+      <td>${escHtml(a.platform || "?")}</td>
+      <td>${escHtml(a.os_version || "-")}</td>
+      <td>${stateBadge(a.status)}</td>
+      <td>${fmtDate(a.last_seen)}</td>
+      <td><span class="beacon-click" id="beacon-${escHtml(a.paw)}" onclick="editAgentBeacon('${escHtml(a.paw)}', ${a.beacon_interval || 30})" title="Click to change beacon interval">${a.beacon_interval || 30}s</span></td>
+      <td>${a.tags ? escHtml(a.tags) : "-"}</td>
+      <td><span class="version-badge" title="Agent version">${escHtml(a.agent_version || "?")}</span></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-secondary btn-sm" onclick="openNativeConsole('${escHtml(a.paw)}')" title="Open native terminal window connected to this agent">Console</button>
+        <button class="console-reset-btn" onclick="resetAndRelaunchConsole('${escHtml(a.paw)}')" title="Kill current session and open a fresh console">Reset</button>
+      </td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteAgent('${escHtml(a.paw)}')" title="Remove agent">x</button></td>
+    </tr>`;
+  }).join("");
 }
 
 function startRenameAgent(paw, currentAlias) {
@@ -317,6 +331,68 @@ async function purgeStaleAgents() {
   }
 }
 
+function _renderAgentStats(agents) {
+  const total   = agents.length;
+  const online  = agents.filter(a => ["online","idle","busy"].includes((a.status||"").toLowerCase())).length;
+  const offline = total - online;
+  const win     = agents.filter(a => (a.platform||"").toLowerCase().includes("windows")).length;
+  const lin     = agents.filter(a => (a.platform||"").toLowerCase().includes("linux")).length;
+  const mac     = agents.filter(a => (a.platform||"").toLowerCase().includes("darwin") || (a.platform||"").toLowerCase().includes("macos")).length;
+  const tagged  = agents.filter(a => a.tags && String(a.tags).trim()).length;
+  const beacons = agents.filter(a => (a.beacon_interval || 0) > 0).map(a => a.beacon_interval);
+  const avgBeacon = beacons.length > 0 ? Math.round(beacons.reduce((s,v) => s+v, 0) / beacons.length) + "s" : "-";
+  setVal("astat-total",   total);
+  setVal("astat-online",  online);
+  setVal("astat-offline", offline);
+  setVal("astat-win",     win);
+  setVal("astat-lin",     lin);
+  setVal("astat-mac",     mac);
+  setVal("astat-tagged",  tagged);
+  setVal("astat-beacon",  avgBeacon);
+  const onEl = document.getElementById("astat-online");
+  if (onEl) onEl.style.color = online > 0 ? "var(--success)" : "var(--text-muted)";
+  const offEl = document.getElementById("astat-offline");
+  if (offEl) offEl.style.color = offline > 0 ? "var(--danger)" : "var(--text-muted)";
+}
+
+function _applyAgentFilterLogic(agents) {
+  const { search, platform, status } = _agentFilter;
+  const sl = search.toLowerCase();
+  return agents.filter(a => {
+    if (status && (a.status || "").toLowerCase() !== status) return false;
+    if (platform) {
+      const p = (a.platform || "").toLowerCase();
+      if (platform === "darwin") { if (!p.includes("darwin") && !p.includes("mac")) return false; }
+      else if (!p.includes(platform)) return false;
+    }
+    if (sl && !(a.alias || "").toLowerCase().includes(sl) &&
+               !(a.host || a.hostname || "").toLowerCase().includes(sl) &&
+               !(a.paw  || "").toLowerCase().includes(sl)) return false;
+    return true;
+  });
+}
+
+function applyAgentFilters() {
+  _agentFilter.search   = (document.getElementById("af-search")?.value   || "").trim();
+  _agentFilter.platform = document.getElementById("af-platform")?.value  || "";
+  _agentFilter.status   = document.getElementById("af-status")?.value    || "";
+  const filtered = _applyAgentFilterLogic(_allAgents);
+  const countEl  = document.getElementById("agentsFilterCount");
+  if (countEl) {
+    const hasFilter = Object.values(_agentFilter).some(v => v !== "");
+    countEl.textContent = hasFilter ? `${filtered.length} / ${_allAgents.length} shown` : "";
+  }
+  _renderAgentTable(filtered);
+}
+
+function clearAgentFilters() {
+  _agentFilter.search = _agentFilter.platform = _agentFilter.status = "";
+  ["af-search","af-platform","af-status"].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
+  const countEl = document.getElementById("agentsFilterCount");
+  if (countEl) countEl.textContent = "";
+  _renderAgentTable(_allAgents);
+}
+
 // Cache last-known server info (populated by loadAdminStatus)
 let _serverInfo = { ip_address: null, dns_name: "" };
 
@@ -336,30 +412,13 @@ async function showDeployToken() {
   const port = _serverInfo.server_port || window.location.port || 8888;
   const serverUrl = `http://${host}:${port}`;
 
-  // Generate one-time deploy token from server
-  let token = "DEPLOY_TOKEN";
-  try {
-    const resp = await apiFetch("/api/v2/admin/deploy-token", { method: "POST", body: "{}" });
-    token = resp.deploy_token || token;
-  } catch (err) {
-    console.warn("[DEPLOY] Could not generate deploy token:", err.message);
-  }
+  // Agent always connects via plain HTTP (dual-mode: HTTPS on server_port, HTTP on agent_port)
+  const agentPort = _serverInfo.agent_port || (_serverInfo.ssl_enabled ? 8889 : (port || 8888));
+  const agentUrl = `http://${host}:${agentPort}`;
 
-  const winCmd = [
-    `# Run as Administrator in PowerShell`,
-    `$server = "${serverUrl}"`,
-    `$token  = "${token}"`,
-    `Invoke-WebRequest -Uri "$server/download/morgana-agent.exe" -OutFile morgana-agent.exe`,
-    `.\\morgana-agent.exe install --server $server --token $token`,
-  ].join("\n");
+  const winCmd = `[Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; Invoke-WebRequest -Uri '${agentUrl}/download/morgana-agent.exe' -OutFile morgana-agent.exe; .\\morgana-agent.exe install --server ${agentUrl}`;
 
-  const linCmd = [
-    `# Run as root`,
-    `SERVER="${serverUrl}"`,
-    `TOKEN="${token}"`,
-    `curl -fsSL "$SERVER/download/morgana-agent" -o morgana-agent && chmod +x morgana-agent`,
-    `./morgana-agent install --server $SERVER --token $TOKEN`,
-  ].join("\n");
+  const linCmd = `curl -ksSL '${agentUrl}/download/morgana-agent' -o morgana-agent && chmod +x morgana-agent && ./morgana-agent install --server ${agentUrl}`;
 
   document.getElementById("deploy-win-cmd").textContent = winCmd;
   document.getElementById("deploy-lin-cmd").textContent = linCmd;
@@ -370,7 +429,92 @@ function closeDeployModal() {
   document.getElementById("deployModal").classList.add("hidden");
 }
 
+function copyDeployCmd(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const text = el.textContent.trim();
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = el.previousElementSibling.querySelector("button");
+    if (!btn) return;
+    const orig = btn.textContent;
+    btn.textContent = "Copied!";
+    btn.style.background = "#4caf50";
+    btn.style.color = "#fff";
+    btn.style.borderColor = "#4caf50";
+    setTimeout(() => {
+      btn.textContent = orig;
+      btn.style.background = "";
+      btn.style.color = "";
+      btn.style.borderColor = "";
+    }, 2000);
+  }).catch(() => {
+    // fallback for http contexts
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    document.execCommand("copy");
+    sel.removeAllRanges();
+    const btn = el.previousElementSibling.querySelector("button");
+    if (btn) { btn.textContent = "Copied!"; setTimeout(() => { btn.textContent = "Copy"; }, 2000); }
+  });
+}
+
 // ─── Scripts ─────────────────────────────────────────────────────────────────
+
+// Sort state: { col: "tcode"|"name"|..., dir: 1|-1 }
+const _scriptSort   = { col: null, dir: 1 };
+const _chainSort    = { col: null, dir: 1 };
+const _campaignSort = { col: null, dir: 1 };
+const _testSort     = { col: null, dir: 1 };
+let _allTests = [];
+
+function _applySortIndicators(thPrefix, sortState, cols) {
+  cols.forEach((c) => {
+    const el = document.getElementById(`${thPrefix}-${c}`);
+    if (!el) return;
+    el.classList.remove("sort-asc", "sort-desc");
+    if (sortState.col === c) el.classList.add(sortState.dir === 1 ? "sort-asc" : "sort-desc");
+  });
+}
+
+function _sortArray(arr, col, dir, getValue) {
+  return arr.slice().sort((a, b) => {
+    const av = (getValue(a, col) || "").toString().toLowerCase();
+    const bv = (getValue(b, col) || "").toString().toLowerCase();
+    return av < bv ? -dir : av > bv ? dir : 0;
+  });
+}
+
+function sortScripts(col) {
+  if (_scriptSort.col === col) _scriptSort.dir *= -1;
+  else { _scriptSort.col = col; _scriptSort.dir = 1; }
+  // Re-render current filtered view
+  const visible = _currentFilteredScripts || allScripts;
+  renderScripts(visible);
+}
+
+function sortChains(col) {
+  if (_chainSort.col === col) _chainSort.dir *= -1;
+  else { _chainSort.col = col; _chainSort.dir = 1; }
+  _renderChainList();
+}
+
+function sortCampaigns(col) {
+  if (_campaignSort.col === col) _campaignSort.dir *= -1;
+  else { _campaignSort.col = col; _campaignSort.dir = 1; }
+  _renderCampaignList(_allCampaigns);
+}
+
+function sortTests(col) {
+  if (_testSort.col === col) _testSort.dir *= -1;
+  else { _testSort.col = col; _testSort.dir = 1; }
+  _renderTestList();
+}
+
+// Track filtered scripts for sort-after-filter
+let _currentFilteredScripts = null;
 
 async function loadScripts() {
   if (allScripts.length) { renderScripts(allScripts); return; }
@@ -383,6 +527,7 @@ async function loadScripts() {
       allScripts = [];
     }
     populateTacticDropdown();
+    _renderScriptStats(allScripts);
     renderScripts(allScripts);
   } catch {
     renderScripts([]);
@@ -390,15 +535,31 @@ async function loadScripts() {
 }
 
 function renderScripts(scripts) {
+  _currentFilteredScripts = scripts;
   const tbody = document.getElementById("scriptsTableBody");
   // Reset select-all checkbox
   const selAll = document.getElementById("scriptSelectAll");
   if (selAll) selAll.checked = false;
   if (!scripts.length) {
     tbody.innerHTML = `<tr><td colspan="9" class="empty-row">No scripts loaded. Make sure the Atomic Red Team submodule is initialized.</td></tr>`;
+    _applySortIndicators("sth", _scriptSort, ["tcode","name","tactic","executor","platform","source"]);
     return;
   }
-  tbody.innerHTML = scripts.slice(0, 500).map((s) => `
+  // Apply sort
+  let sorted = scripts;
+  if (_scriptSort.col) {
+    sorted = _sortArray(scripts, _scriptSort.col, _scriptSort.dir, (s, c) => {
+      if (c === "tcode")    return s.tcode    || "";
+      if (c === "name")     return s.name     || "";
+      if (c === "tactic")   return s.tactic   || "";
+      if (c === "executor") return s.executor || "";
+      if (c === "platform") return s.platform || "";
+      if (c === "source")   return s.source   || "";
+      return "";
+    });
+  }
+  _applySortIndicators("sth", _scriptSort, ["tcode","name","tactic","executor","platform","source"]);
+  tbody.innerHTML = sorted.slice(0, 500).map((s) => `
     <tr>
       <td style="width:32px;text-align:center"><input type="checkbox" class="script-row-cb" value="${escHtml(s.id)}"></td>
       <td><span class="tcode">${escHtml(s.tcode || "?")}</span></td>
@@ -417,7 +578,7 @@ function renderScripts(scripts) {
     </tr>
   `).join("");
   // Load tags asynchronously for each row (batch, non-blocking)
-  scripts.slice(0, 500).forEach((s) => loadEntityTagsInline("script", s.id, `tags-script-${s.id}`));
+  sorted.slice(0, 500).forEach((s) => loadEntityTagsInline("script", s.id, `tags-script-${s.id}`));
 }
 
 function toggleSelectAllScripts(masterCb) {
@@ -535,48 +696,202 @@ async function duplicateScript(id) {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
+function _renderScriptStats(scripts) {
+  const total   = scripts.length;
+  const tcodes  = new Set(scripts.map(s => s.tcode).filter(Boolean)).size;
+  const tactics = new Set(scripts.map(s => s.tactic).filter(Boolean)).size;
+  const win     = scripts.filter(s => (s.platform||"").toLowerCase().includes("windows")).length;
+  const lin     = scripts.filter(s => (s.platform||"").toLowerCase().includes("linux")).length;
+  const mac     = scripts.filter(s => (s.platform||"").toLowerCase().includes("darwin") || (s.platform||"").toLowerCase().includes("macos")).length;
+  const atomic  = scripts.filter(s => (s.source||"").toLowerCase().includes("atomic")).length;
+  const custom  = scripts.filter(s => !(s.source||"").toLowerCase().includes("atomic")).length;
+  const ps      = scripts.filter(s => (s.executor||"").toLowerCase() === "powershell").length;
+  const cmd     = scripts.filter(s => ["cmd","bash"].includes((s.executor||"").toLowerCase())).length;
+  setVal("sstat-total",   total);
+  setVal("sstat-tcodes",  tcodes);
+  setVal("sstat-tactics", tactics);
+  setVal("sstat-win",     win);
+  setVal("sstat-lin",     lin);
+  setVal("sstat-mac",     mac);
+  setVal("sstat-atomic",  atomic);
+  setVal("sstat-custom",  custom);
+  setVal("sstat-ps",      ps);
+  setVal("sstat-cmd",     cmd);
+}
+
 let _testDetailId = null;
+const _testFilter = { search: "", state: "", type: "", agent: "", exit: "", from: "", to: "" };
 
 async function loadTests() {
   const tbody = document.getElementById("testsTableBody");
   try {
-    const tests = await apiFetch("/api/v2/tests?limit=200");
-    if (!tests.length) {
-      tbody.innerHTML = `<tr><td colspan="9" class="empty-row">No tests yet</td></tr>`;
-      return;
-    }
-    tbody.innerHTML = tests.map((t) => {
-      const agent = t.agent_hostname ? `${escHtml(t.agent_hostname)} [${escHtml(t.agent_paw || "")}]` : "-";
-      const dur = t.duration_ms != null ? `${t.duration_ms} ms` : "-";
-      const tcode = t.tcode ? `<span class="tcode">${escHtml(t.tcode)}</span>` : "-";
-      const opName = t.operation_name || "";
-      let testType, testName;
-      if (opName.startsWith("chain:"))       { testType = "Chain";  testName = opName.slice(6) || "-"; }
-      else if (opName.startsWith("manual:")) { testType = "Script"; testName = opName.slice(7) || "-"; }
-      else if (opName === "adhoc")           { testType = "Script"; testName = "Ad-hoc"; }
-      else                                   { testType = "Script"; testName = opName || "-"; }
-      const typeBadge = testType === "Chain"
-        ? `<span style="color:#f59e0b;font-size:11px">Chain</span>`
-        : `<span style="color:var(--accent);font-size:11px">Script</span>`;
-      return `<tr>
-        <td style="white-space:nowrap;font-size:0.8rem">${fmtDateTime(t.created_at)}</td>
-        <td>${tcode}</td>
-        <td>${typeBadge}</td>
-        <td>${escHtml(testName)}</td>
-        <td>${escHtml(agent)}</td>
-        <td>${stateBadge(t.state)}</td>
-        <td style="text-align:center">${t.exit_code != null ? t.exit_code : "-"}</td>
-        <td style="white-space:nowrap">${dur}</td>
-        <td style="white-space:nowrap">
-          <button class="btn btn-secondary btn-sm" onclick="openTestModal('${escHtml(t.id)}')">View</button>
-          <button class="btn btn-danger btn-sm" style="margin-left:4px" onclick="deleteTest('${escHtml(t.id)}')">Delete</button>
-        </td>
-      </tr>`;
-    }).join("");
+    _allTests = await apiFetch("/api/v2/tests?limit=500");
+    _renderTestStats(_allTests);
+    _populateAgentFilter(_allTests);
+    _renderTestList();
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="9" class="empty-row">Error: ${escHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="empty-row">Error: ${escHtml(err.message)}</td></tr>`;
     console.error("[TESTS] Load failed:", err.message);
   }
+}
+
+function _renderTestStats(tests) {
+  const total    = tests.length;
+  const running  = tests.filter(t => (t.state || "").toLowerCase() === "running").length;
+  const finished = tests.filter(t => (t.state || "").toLowerCase() === "finished").length;
+  const failed   = tests.filter(t => (t.state || "").toLowerCase() === "failed").length;
+  const pending  = tests.filter(t => (t.state || "").toLowerCase() === "pending").length;
+
+  const completed = tests.filter(t => t.duration_ms != null && ((t.state || "").toLowerCase() === "finished" || (t.state || "").toLowerCase() === "failed"));
+  const successCount = completed.filter(t => t.exit_code === 0).length;
+  const rate = completed.length > 0 ? Math.round((successCount / completed.length) * 100) : null;
+
+  const durations = completed.filter(t => t.duration_ms > 0).map(t => t.duration_ms);
+  const avgDur = durations.length > 0 ? Math.round(durations.reduce((s, v) => s + v, 0) / durations.length) : null;
+
+  const tcodes  = new Set(tests.map(t => t.tcode).filter(Boolean));
+  const agents  = new Set(tests.map(t => t.agent_hostname).filter(Boolean));
+  const scripts = new Set(tests.map(t => t.script_name).filter(Boolean));
+
+  const fmtDur = (ms) => ms == null ? "-" : ms >= 60000 ? `${(ms/60000).toFixed(1)}m` : ms >= 1000 ? `${(ms/1000).toFixed(1)}s` : `${ms}ms`;
+
+  setVal("tstat-total",   total);
+  setVal("tstat-running", running);
+  setVal("tstat-finished",finished);
+  setVal("tstat-failed",  failed);
+  setVal("tstat-pending", pending);
+  setVal("tstat-rate",    rate != null ? `${rate}%` : "-");
+  setVal("tstat-avgdur",  fmtDur(avgDur));
+  setVal("tstat-tcodes",  tcodes.size);
+  setVal("tstat-agents",  agents.size);
+  setVal("tstat-scripts", scripts.size);
+
+  // Color success rate red/yellow/green
+  const rateEl = document.getElementById("tstat-rate");
+  if (rateEl && rate != null) {
+    rateEl.style.color = rate >= 70 ? "var(--success)" : rate >= 40 ? "var(--warning)" : "var(--danger)";
+  }
+}
+
+function _populateAgentFilter(tests) {
+  const sel = document.getElementById("tf-agent");
+  if (!sel) return;
+  const agents = [...new Set(tests.map(t => t.agent_hostname).filter(Boolean))].sort();
+  const current = sel.value;
+  sel.innerHTML = `<option value="">All Agents</option>` +
+    agents.map(a => `<option value="${escHtml(a)}"${a === current ? " selected" : ""}>${escHtml(a)}</option>`).join("");
+}
+
+function _getTestType(t) {
+  const opName = t.operation_name || "";
+  if (opName.startsWith("chain:")) return "Chain";
+  return "Script";
+}
+
+function _applyTestFilterLogic(tests) {
+  const { search, state, type, agent, exit: exitFilter, from, to } = _testFilter;
+  const searchLower = search.toLowerCase();
+  return tests.filter(t => {
+    if (state && (t.state || "").toLowerCase() !== state) return false;
+    if (type  && _getTestType(t) !== type)                 return false;
+    if (agent && (t.agent_hostname || "") !== agent)        return false;
+    if (exitFilter === "0"       && t.exit_code !== 0)        return false;
+    if (exitFilter === "nonzero" && (t.exit_code == null || t.exit_code === 0)) return false;
+    if (from && t.created_at && t.created_at.slice(0,10) < from) return false;
+    if (to   && t.created_at && t.created_at.slice(0,10) > to)   return false;
+    if (searchLower) {
+      const opName = (t.operation_name || "").toLowerCase();
+      const tcode  = (t.tcode        || "").toLowerCase();
+      const script = (t.script_name  || "").toLowerCase();
+      const testName = opName.replace(/^(chain:|manual:)/, "");
+      if (!tcode.includes(searchLower) && !testName.includes(searchLower) && !script.includes(searchLower)) return false;
+    }
+    return true;
+  });
+}
+
+function applyTestFilters() {
+  _testFilter.search = (document.getElementById("tf-search")?.value || "").trim();
+  _testFilter.state  = document.getElementById("tf-state")?.value  || "";
+  _testFilter.type   = document.getElementById("tf-type")?.value   || "";
+  _testFilter.agent  = document.getElementById("tf-agent")?.value  || "";
+  _testFilter.exit   = document.getElementById("tf-exit")?.value   || "";
+  _testFilter.from   = document.getElementById("tf-from")?.value   || "";
+  _testFilter.to     = document.getElementById("tf-to")?.value     || "";
+  _renderTestList();
+}
+
+function clearTestFilters() {
+  _testFilter.search = _testFilter.state = _testFilter.type = _testFilter.agent = _testFilter.exit = _testFilter.from = _testFilter.to = "";
+  const ids = ["tf-search","tf-state","tf-type","tf-agent","tf-exit","tf-from","tf-to"];
+  ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
+  _renderTestList();
+}
+
+function _renderTestList() {
+  const tbody = document.getElementById("testsTableBody");
+  const testSortCols = ["date","tcode","type","name","script","agent","state","exit","duration"];
+  _applySortIndicators("tth", _testSort, testSortCols);
+
+  // Apply filters first, then sort
+  let tests = _applyTestFilterLogic(_allTests);
+
+  // Update filter count label
+  const countEl = document.getElementById("testsFilterCount");
+  if (countEl) {
+    const hasFilter = Object.values(_testFilter).some(v => v !== "");
+    countEl.textContent = hasFilter ? `${tests.length} / ${_allTests.length} shown` : "";
+  }
+
+  if (_testSort.col) {
+    tests = _sortArray(tests, _testSort.col, _testSort.dir, (t, c) => {
+      const opName = t.operation_name || "";
+      if (c === "date")     return t.created_at || "";
+      if (c === "tcode")    return t.tcode || "";
+      if (c === "type")     return opName.startsWith("chain:") ? "chain" : "script";
+      if (c === "name")     return opName.replace(/^(chain:|manual:)/, "") || "";
+      if (c === "script")   return t.script_name || "";
+      if (c === "agent")    return t.agent_hostname || "";
+      if (c === "state")    return t.state || "";
+      if (c === "exit")     return t.exit_code != null ? String(t.exit_code).padStart(5, "0") : "";
+      if (c === "duration") return t.duration_ms != null ? String(t.duration_ms).padStart(10, "0") : "";
+      return "";
+    });
+  }
+  if (!tests.length) {
+    const hasFilter = Object.values(_testFilter).some(v => v !== "");
+    tbody.innerHTML = `<tr><td colspan="10" class="empty-row">${hasFilter ? "No tests match current filters" : "No tests yet"}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = tests.map((t) => {
+    const agent = t.agent_hostname ? `${escHtml(t.agent_hostname)} [${escHtml(t.agent_paw || "")}]` : "-";
+    const dur = t.duration_ms != null ? `${t.duration_ms} ms` : "-";
+    const tcode = t.tcode ? `<span class="tcode">${escHtml(t.tcode)}</span>` : "-";
+    const opName = t.operation_name || "";
+    let testType, testName;
+    if (opName.startsWith("chain:"))       { testType = "Chain";  testName = opName.slice(6) || "-"; }
+    else if (opName.startsWith("manual:")) { testType = "Script"; testName = opName.slice(7) || "-"; }
+    else if (opName === "adhoc")           { testType = "Script"; testName = "Ad-hoc"; }
+    else                                   { testType = "Script"; testName = opName || "-"; }
+    const typeBadge = testType === "Chain"
+      ? `<span style="color:#f59e0b;font-size:11px">Chain</span>`
+      : `<span style="color:var(--accent);font-size:11px">Script</span>`;
+    return `<tr>
+      <td style="white-space:nowrap;font-size:0.8rem">${fmtDateTime(t.created_at)}</td>
+      <td>${tcode}</td>
+      <td>${typeBadge}</td>
+      <td>${escHtml(testName)}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(t.script_name || '')}">${t.script_name ? escHtml(t.script_name) : "-"}</td>
+      <td>${escHtml(agent)}</td>
+      <td>${stateBadge(t.state)}</td>
+      <td style="text-align:center">${t.exit_code != null ? t.exit_code : "-"}</td>
+      <td style="white-space:nowrap">${dur}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-secondary btn-sm" onclick="openTestModal('${escHtml(t.id)}')">View</button>
+        <button class="btn btn-danger btn-sm" style="margin-left:4px" onclick="deleteTest('${escHtml(t.id)}')">Delete</button>
+      </td>
+    </tr>`;
+  }).join("");
 }
 
 async function openTestModal(testId) {
@@ -892,11 +1207,9 @@ function openScriptModal(scriptId) {
   document.getElementById("sm-executor").value = s.executor || "powershell";
   document.getElementById("sm-platform").value = s.platform || "all";
 
-  // Atomic scripts are read-only except for tags/execute
-  const readOnly = _currentScriptIsAtomic;
   ["sm-name", "sm-tcode", "sm-tactic", "sm-description", "sm-command", "sm-cleanup"].forEach((id) => {
     const el = document.getElementById(id);
-    if (el) el.readOnly = readOnly;
+    if (el) el.readOnly = false;
   });
   document.getElementById("sm-delete-btn").style.display = "inline-flex";
 
@@ -1062,9 +1375,8 @@ let _consoleFitAddon = null;
 
 async function resetConsoleSession(paw) {
   try {
-    const r = await fetch(`${API_BASE}/api/v2/console/session/${encodeURIComponent(paw)}?key=${encodeURIComponent(API_KEY)}`, { method: "DELETE" });
-    const j = await r.json();
-    console.log("[CONSOLE] Reset", paw, j.action);
+    const j = await apiFetch(`/api/v2/console/session/${encodeURIComponent(paw)}`, { method: "DELETE" });
+    console.log("[CONSOLE] Reset", paw, j && j.action);
   } catch (err) {
     console.warn("[CONSOLE] Reset failed:", err.message);
   }
@@ -1111,9 +1423,7 @@ async function openNativeConsole(paw) {
   };
   setStatus("launching...", "var(--accent-color)");
   try {
-    const r = await fetch(`${API_BASE}/api/v2/console/native/${encodeURIComponent(paw)}?key=${encodeURIComponent(API_KEY)}`, { method: "POST" });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const j = await r.json();
+    const j = await apiFetch(`/api/v2/console/native/${encodeURIComponent(paw)}`, { method: "POST" });
     setStatus(`shell opening for ${j.hostname}`, "#6bcb77");
     setTimeout(() => setStatus(""), 5000);
   } catch (err) {
@@ -1159,7 +1469,7 @@ async function openConsole(paw, label) {
   });
 
   const proto = API_BASE.startsWith("https") ? "wss" : "ws";
-  const wsURL = `${proto}://${window.location.host}/api/v2/console/ws/${encodeURIComponent(paw)}?key=${encodeURIComponent(API_KEY)}`;
+  const wsURL = `${proto}://${window.location.host}/api/v2/console/ws/${encodeURIComponent(paw)}?key=${encodeURIComponent(API_KEY || _morganaJWT || "")}`;
   _consoleWS = new WebSocket(wsURL);
 
   _consoleWS.onopen = () => {
@@ -1412,26 +1722,54 @@ async function loadChains() {
   document.getElementById("chain-editor-view").style.display = "none";
 
   const tbody = document.getElementById("chainListBody");
-  tbody.innerHTML = `<tr><td colspan="5" class="empty-row">Loading...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="6" class="empty-row">Loading...</td></tr>`;
   try {
     _allChains = await apiFetch("/api/v2/chains");
+    _renderChainStats(_allChains);
     _renderChainList();
     loadChainExecutionsList();
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-row">Error: ${escHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">Error: ${escHtml(err.message)}</td></tr>`;
   }
 }
 
 function _renderChainList() {
   const tbody = document.getElementById("chainListBody");
-  if (!_allChains.length) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-row">No chains yet. Click "+ New Chain" to build one.</td></tr>`;
+  const selAll = document.getElementById("chainSelectAll");
+  if (selAll) selAll.checked = false;
+
+  // Apply filter
+  const chains = _applyChainsFilterLogic(_allChains);
+
+  // Update filter count label
+  const countEl = document.getElementById("chainsFilterCount");
+  if (countEl) {
+    const hasFilter = Object.values(_chainFilter).some(v => v !== "");
+    countEl.textContent = hasFilter ? `${chains.length} / ${_allChains.length} shown` : "";
+  }
+
+  if (!chains.length) {
+    const hasFilter = Object.values(_chainFilter).some(v => v !== "");
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">${hasFilter ? "No chains match current filters" : "No chains yet. Click &quot;+ New Chain&quot; to build one."}</td></tr>`;
+    _applySortIndicators("cth", _chainSort, ["name","description","nodes","updated"]);
     return;
   }
-  tbody.innerHTML = _allChains.map((c) => {
+  let sorted = chains;
+  if (_chainSort.col) {
+    sorted = _sortArray(chains, _chainSort.col, _chainSort.dir, (c, col) => {
+      if (col === "name")        return c.name        || "";
+      if (col === "description") return c.description || "";
+      if (col === "nodes")       return String((c.flow && c.flow.nodes) ? c.flow.nodes.length : 0);
+      if (col === "updated")     return c.updated_at  || "";
+      return "";
+    });
+  }
+  _applySortIndicators("cth", _chainSort, ["name","description","nodes","updated"]);
+  tbody.innerHTML = sorted.map((c) => {
     const nodeCount = (c.flow && c.flow.nodes) ? c.flow.nodes.length : 0;
     const updated   = c.updated_at ? c.updated_at.slice(0, 16).replace("T", " ") : "-";
     return `<tr>
+      <td style="width:32px;text-align:center"><input type="checkbox" class="chain-row-cb" value="${escHtml(c.id)}"></td>
       <td><strong>${escHtml(c.name)}</strong></td>
       <td style="color:var(--text-secondary)">${escHtml(c.description || "-")}</td>
       <td>${nodeCount}</td>
@@ -1444,6 +1782,46 @@ function _renderChainList() {
       </td>
     </tr>`;
   }).join("");
+}
+
+function _renderChainStats(chains) {
+  const total    = chains.length;
+  const nonEmpty = chains.filter(c => c.flow && c.flow.nodes && c.flow.nodes.length > 0).length;
+  const empty    = total - nonEmpty;
+  const allNodes = chains.reduce((s, c) => s + ((c.flow && c.flow.nodes) ? c.flow.nodes.length : 0), 0);
+  const avgNodes = total > 0 ? (allNodes / total).toFixed(1) : "0";
+  const today    = new Date().toISOString().slice(0, 10);
+  const updToday = chains.filter(c => c.updated_at && c.updated_at.slice(0, 10) === today).length;
+  setVal("chstat-total",    total);
+  setVal("chstat-nonempty", nonEmpty);
+  setVal("chstat-empty",    empty);
+  setVal("chstat-nodes",    allNodes);
+  setVal("chstat-avg",      avgNodes);
+  setVal("chstat-today",    updToday);
+}
+
+function _applyChainsFilterLogic(chains) {
+  const { search, hasnodes } = _chainFilter;
+  const sl = search.toLowerCase();
+  return chains.filter(c => {
+    const nodeCount = (c.flow && c.flow.nodes) ? c.flow.nodes.length : 0;
+    if (hasnodes === "yes" && nodeCount === 0) return false;
+    if (hasnodes === "no"  && nodeCount > 0)   return false;
+    if (sl && !(c.name || "").toLowerCase().includes(sl) && !(c.description || "").toLowerCase().includes(sl)) return false;
+    return true;
+  });
+}
+
+function applyChainsFilter() {
+  _chainFilter.search   = (document.getElementById("cf-search")?.value   || "").trim();
+  _chainFilter.hasnodes = document.getElementById("cf-hasnodes")?.value  || "";
+  _renderChainList();
+}
+
+function clearChainsFilter() {
+  _chainFilter.search = _chainFilter.hasnodes = "";
+  ["cf-search","cf-hasnodes"].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
+  _renderChainList();
 }
 
 async function loadChainExecutionsList() {
@@ -1583,6 +1961,25 @@ async function deleteAllChains() {
   } catch (err) {
     alert("Delete all failed: " + err.message);
   }
+}
+
+function toggleSelectAllChains(masterCb) {
+  document.querySelectorAll(".chain-row-cb").forEach((cb) => { cb.checked = masterCb.checked; });
+}
+
+async function deleteSelectedChains() {
+  const ids = [...document.querySelectorAll(".chain-row-cb:checked")].map((cb) => cb.value);
+  if (!ids.length) { alert("No chains selected."); return; }
+  if (!confirm(`Delete ${ids.length} selected chain(s)? This cannot be undone.`)) return;
+  let failed = 0;
+  for (const id of ids) {
+    try {
+      await apiFetch(`/api/v2/chains/${id}`, { method: "DELETE" });
+      _allChains = _allChains.filter((x) => x.id !== id);
+    } catch { failed++; }
+  }
+  _renderChainList();
+  if (failed) alert(`${ids.length - failed} deleted, ${failed} failed.`);
 }
 
 async function clearChainExecutions() {
@@ -2224,26 +2621,54 @@ async function loadCampaigns() {
   document.getElementById("campaign-editor-view").style.display = "none";
 
   const tbody = document.getElementById("campaignListBody");
-  tbody.innerHTML = `<tr><td colspan="5" class="empty-row">Loading...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="6" class="empty-row">Loading...</td></tr>`;
   try {
     const campaigns = await apiFetch("/api/v2/campaigns");
+    _renderCampaignStats(campaigns);
     _renderCampaignList(campaigns);
     loadCampaignExecutionsList();
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-row">Error: ${escHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">Error: ${escHtml(err.message)}</td></tr>`;
   }
 }
 
 function _renderCampaignList(campaigns) {
   _allCampaigns = campaigns;
   const tbody = document.getElementById("campaignListBody");
-  if (!campaigns.length) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-row">No campaigns yet. Click "+ New Campaign" to build one.</td></tr>`;
+  const selAll = document.getElementById("campaignSelectAll");
+  if (selAll) selAll.checked = false;
+
+  // Apply filter
+  const filtered = _applyCampaignsFilterLogic(_allCampaigns);
+
+  // Update filter count label
+  const countEl = document.getElementById("campaignsFilterCount");
+  if (countEl) {
+    const hasFilter = Object.values(_campaignFilter).some(v => v !== "");
+    countEl.textContent = hasFilter ? `${filtered.length} / ${_allCampaigns.length} shown` : "";
+  }
+
+  if (!filtered.length) {
+    const hasFilter = Object.values(_campaignFilter).some(v => v !== "");
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">${hasFilter ? "No campaigns match current filters" : "No campaigns yet. Click &quot;+ New Campaign&quot; to build one."}</td></tr>`;
+    _applySortIndicators("pth", _campaignSort, ["name","description","nodes","updated"]);
     return;
   }
-  tbody.innerHTML = campaigns.map((c) => {
+  let sorted = filtered;
+  if (_campaignSort.col) {
+    sorted = _sortArray(filtered, _campaignSort.col, _campaignSort.dir, (c, col) => {
+      if (col === "name")        return c.name        || "";
+      if (col === "description") return c.description || "";
+      if (col === "nodes")       return String(c.node_count || 0);
+      if (col === "updated")     return c.updated_at  || "";
+      return "";
+    });
+  }
+  _applySortIndicators("pth", _campaignSort, ["name","description","nodes","updated"]);
+  tbody.innerHTML = sorted.map((c) => {
     const updated = c.updated_at ? c.updated_at.slice(0, 16).replace("T", " ") : "-";
     return `<tr>
+      <td style="width:32px;text-align:center"><input type="checkbox" class="campaign-row-cb" value="${escHtml(c.id)}"></td>
       <td><strong>${escHtml(c.name)}</strong></td>
       <td style="color:var(--text-secondary)">${escHtml(c.description || "-")}</td>
       <td>${c.node_count || 0}</td>
@@ -2256,6 +2681,46 @@ function _renderCampaignList(campaigns) {
       </td>
     </tr>`;
   }).join("");
+}
+
+function _renderCampaignStats(campaigns) {
+  const total      = campaigns.length;
+  const withChains = campaigns.filter(c => (c.node_count || 0) > 0).length;
+  const empty      = total - withChains;
+  const totalRefs  = campaigns.reduce((s, c) => s + (c.node_count || 0), 0);
+  const avgChains  = total > 0 ? (totalRefs / total).toFixed(1) : "0";
+  const today      = new Date().toISOString().slice(0, 10);
+  const updToday   = campaigns.filter(c => c.updated_at && c.updated_at.slice(0, 10) === today).length;
+  setVal("cpstat-total",      total);
+  setVal("cpstat-withchains", withChains);
+  setVal("cpstat-empty",      empty);
+  setVal("cpstat-chains",     totalRefs);
+  setVal("cpstat-avg",        avgChains);
+  setVal("cpstat-today",      updToday);
+}
+
+function _applyCampaignsFilterLogic(campaigns) {
+  const { search, haschains } = _campaignFilter;
+  const sl = search.toLowerCase();
+  return campaigns.filter(c => {
+    const chainCount = c.node_count || 0;
+    if (haschains === "yes" && chainCount === 0) return false;
+    if (haschains === "no"  && chainCount > 0)   return false;
+    if (sl && !(c.name || "").toLowerCase().includes(sl) && !(c.description || "").toLowerCase().includes(sl)) return false;
+    return true;
+  });
+}
+
+function applyCampaignsFilter() {
+  _campaignFilter.search    = (document.getElementById("pgf-search")?.value    || "").trim();
+  _campaignFilter.haschains = document.getElementById("pgf-haschains")?.value  || "";
+  _renderCampaignList(_allCampaigns);
+}
+
+function clearCampaignsFilter() {
+  _campaignFilter.search = _campaignFilter.haschains = "";
+  ["pgf-search","pgf-haschains"].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
+  _renderCampaignList(_allCampaigns);
 }
 
 async function loadCampaignExecutionsList() {
@@ -2435,6 +2900,24 @@ async function deleteAllCampaigns() {
   }
 }
 
+function toggleSelectAllCampaigns(masterCb) {
+  document.querySelectorAll(".campaign-row-cb").forEach((cb) => { cb.checked = masterCb.checked; });
+}
+
+async function deleteSelectedCampaigns() {
+  const ids = [...document.querySelectorAll(".campaign-row-cb:checked")].map((cb) => cb.value);
+  if (!ids.length) { alert("No campaigns selected."); return; }
+  if (!confirm(`Delete ${ids.length} selected campaign(s)? This cannot be undone.`)) return;
+  let failed = 0;
+  for (const id of ids) {
+    try {
+      await apiFetch(`/api/v2/campaigns/${id}`, { method: "DELETE" });
+    } catch { failed++; }
+  }
+  loadCampaigns();
+  if (failed) alert(`${ids.length - failed} deleted, ${failed} failed.`);
+}
+
 async function clearCampaignExecutions() {
   if (!confirm("Clear all campaign execution history? This cannot be undone.")) return;
   try {
@@ -2500,6 +2983,172 @@ async function executeCampaignFromEditor() {
 
 let _qeType = null;  // "script" | "chain" | "campaign"
 let _qeId   = null;
+
+// ─── Bulk Execute ──────────────────────────────────────────────────────────────
+let _beType       = null;  // "script"|"chain"|"campaign"
+let _beIds        = [];    // all selected entity ids
+let _beNeedAgent  = [];    // ids that have no saved agent
+
+function executeSelectedScripts() {
+  const ids = [...document.querySelectorAll(".script-row-cb:checked")].map((cb) => cb.value);
+  if (!ids.length) { alert("No scripts selected."); return; }
+  _showBulkExecModal("script", ids);
+}
+
+function executeSelectedChains() {
+  const ids = [...document.querySelectorAll(".chain-row-cb:checked")].map((cb) => cb.value);
+  if (!ids.length) { alert("No chains selected."); return; }
+  _showBulkExecModal("chain", ids);
+}
+
+function executeSelectedCampaigns() {
+  const ids = [...document.querySelectorAll(".campaign-row-cb:checked")].map((cb) => cb.value);
+  if (!ids.length) { alert("No campaigns selected."); return; }
+  _showBulkExecModal("campaign", ids);
+}
+
+async function _showBulkExecModal(type, ids) {
+  _beType = type;
+  _beIds  = ids;
+
+  // Determine which items have no saved agent
+  if (type === "script") {
+    // Scripts never have a stored agent
+    _beNeedAgent = ids.slice();
+  } else if (type === "chain") {
+    _beNeedAgent = ids.filter((id) => {
+      const c = _allChains.find((x) => x.id === id);
+      return !c || !(c.agent_paw || "").trim();
+    });
+  } else {
+    _beNeedAgent = ids.filter((id) => {
+      const c = _allCampaigns.find((x) => x.id === id);
+      return !c || !(c.agent_paw || "").trim();
+    });
+  }
+
+  const label = type === "script" ? "Scripts" : type === "chain" ? "Chains" : "Campaigns";
+  document.getElementById("be-title").textContent = `Execute Selected ${label} (${ids.length})`;
+
+  const missingInfo = document.getElementById("be-missing-info");
+  const saveLabel   = document.getElementById("be-save-label");
+  const saveCb      = document.getElementById("be-save-cb");
+  saveCb.checked = false;
+
+  if (_beNeedAgent.length) {
+    const names = _beNeedAgent.map((id) => {
+      if (type === "script")   return (allScripts.find((s) => String(s.id) === String(id)) || {}).name || id;
+      if (type === "chain")    return (_allChains.find((c) => c.id === id) || {}).name || id;
+      return (_allCampaigns.find((c) => c.id === id) || {}).name || id;
+    });
+    document.getElementById("be-missing-list").innerHTML =
+      names.map((n) => `<li>${escHtml(n)}</li>`).join("");
+    missingInfo.style.display = "";
+    // Show "save" only for chain/campaign (scripts have no agent field)
+    saveLabel.style.display = type !== "script" ? "flex" : "none";
+  } else {
+    missingInfo.style.display = "none";
+    saveLabel.style.display   = "none";
+  }
+
+  const btn = document.getElementById("be-run-btn");
+  btn.disabled    = false;
+  btn.textContent = "Execute All";
+
+  document.getElementById("bulkExecModal").classList.remove("hidden");
+
+  // Load agents
+  const sel = document.getElementById("be-agent-sel");
+  sel.innerHTML = `<option value="">Loading agents...</option>`;
+  try {
+    const agents = await apiFetch("/api/v2/agents");
+    const list = agents.agents || agents || [];
+    if (!list.length) {
+      sel.innerHTML = `<option value="">No agents registered</option>`;
+      return;
+    }
+    const defaultOption = _beNeedAgent.length ? `<option value="">Select agent...</option>` : `<option value="">Use each saved agent</option>`;
+    sel.innerHTML = defaultOption + list.map((a) => {
+      const host  = a.host || a.hostname || "";
+      const lbl   = a.alias ? `${a.alias}  (${host})  [${a.paw}]` : `${host}  [${a.paw}]`;
+      return `<option value="${escHtml(a.paw)}">${escHtml(lbl)}</option>`;
+    }).join("");
+  } catch (err) {
+    sel.innerHTML = `<option value="">Error loading agents</option>`;
+  }
+}
+
+function closeBulkExecModal() {
+  document.getElementById("bulkExecModal").classList.add("hidden");
+  _beType = null; _beIds = []; _beNeedAgent = [];
+}
+
+async function _bulkExecRun() {
+  const paw  = (document.getElementById("be-agent-sel").value || "").trim();
+  const save = document.getElementById("be-save-cb").checked;
+
+  // Validate: if any item needs agent and no agent selected → error
+  if (_beNeedAgent.length && !paw) {
+    alert("Select an agent for the items without a saved agent.");
+    return;
+  }
+
+  const btn = document.getElementById("be-run-btn");
+  btn.disabled    = true;
+  btn.textContent = "Running...";
+
+  try {
+    // Optionally save agent to items that were missing one
+    if (save && paw && _beNeedAgent.length && _beType !== "script") {
+      for (const id of _beNeedAgent) {
+        const endpoint = _beType === "chain" ? `/api/v2/chains/${id}` : `/api/v2/campaigns/${id}`;
+        try {
+          await apiFetch(endpoint, { method: "PUT", body: JSON.stringify({ agent_paw: paw }) });
+          // Update local state
+          if (_beType === "chain") {
+            const c = _allChains.find((x) => x.id === id);
+            if (c) c.agent_paw = paw;
+          } else {
+            const c = _allCampaigns.find((x) => x.id === id);
+            if (c) c.agent_paw = paw;
+          }
+        } catch (e) {
+          console.warn("[BULK_EXEC] Failed to save agent to", id, e.message);
+        }
+      }
+    }
+
+    let ok = 0, failed = 0;
+    for (const id of _beIds) {
+      try {
+        let endpoint, body;
+        if (_beType === "script") {
+          endpoint = `/api/v2/scripts/${id}/execute`;
+          body = { paw };
+        } else if (_beType === "chain") {
+          endpoint = `/api/v2/chains/${id}/execute`;
+          const saved = (_allChains.find((c) => c.id === id) || {}).agent_paw || "";
+          body = { agent_paw: paw || saved };
+        } else {
+          endpoint = `/api/v2/campaigns/${id}/execute`;
+          const saved = (_allCampaigns.find((c) => c.id === id) || {}).agent_paw || "";
+          body = { agent_paw: paw || saved };
+        }
+        await apiFetch(endpoint, { method: "POST", body: JSON.stringify(body) });
+        ok++;
+      } catch { failed++; }
+    }
+    closeBulkExecModal();
+    alert(`[OK] Executed: ${ok}${failed ? `, Failed: ${failed}` : ""}`);
+    if (_beType === "chain")    loadChainExecutionsList();
+    if (_beType === "campaign") loadCampaignExecutionsList();
+  } catch (err) {
+    alert("[ERROR] " + err.message);
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = "Execute All";
+  }
+}
 
 async function _showQuickExecModal(type, id) {
   _qeType = type;
@@ -2955,15 +3604,21 @@ async function loadApiKeys() {
       tbody.innerHTML = `<tr><td colspan="4" class="empty-row">No API keys created yet.</td></tr>`;
       return;
     }
-    tbody.innerHTML = keys.map((k) => `
+    tbody.innerHTML = keys.map((k) => {
+      const cached = localStorage.getItem("morgana_keyval_" + k.id);
+      const copyBtn = cached
+        ? `<button class="btn btn-secondary btn-sm" onclick="_copyKeyFromCache('${escHtml(k.id)}')" title="Copy full key">Copy</button> `
+        : "";
+      return `
       <tr>
         <td>${escHtml(k.name)}</td>
         <td><code>${escHtml(k.key_prefix)}...</code></td>
         <td>${escHtml(k.created_at)}</td>
         <td style="text-align:right">
-          <button class="btn btn-danger btn-sm" onclick="_deleteApiKey('${escHtml(k.id)}','${escHtml(k.name)}')">Revoke</button>
+          ${copyBtn}<button class="btn btn-danger btn-sm" onclick="_deleteApiKey('${escHtml(k.id)}','${escHtml(k.name)}')">Revoke</button>
         </td>
-      </tr>`).join("");
+      </tr>`;
+    }).join("");
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="4" class="empty-row">[ERROR] ${escHtml(err.message)}</td></tr>`;
   }
@@ -2993,6 +3648,7 @@ async function _createApiKeySubmit() {
       body: JSON.stringify({ name }),
     });
     _closeNewKeyModal();
+    localStorage.setItem("morgana_keyval_" + result.id, result.key);
     document.getElementById("revealKeyValue").textContent = result.key;
     document.getElementById("keyRevealModal").classList.remove("hidden");
     loadApiKeys();
@@ -3004,6 +3660,21 @@ async function _createApiKeySubmit() {
 
 function _closeKeyRevealModal() {
   document.getElementById("keyRevealModal").classList.add("hidden");
+}
+
+function _useBrowserKey() {
+  const val = document.getElementById("revealKeyValue").textContent;
+  if (val) {
+    localStorage.setItem("morgana_api_key", val);
+    _closeKeyRevealModal();
+  }
+}
+
+function _copyKeyFromCache(id) {
+  const val = localStorage.getItem("morgana_keyval_" + id);
+  if (!val) { alert("Key no longer cached in this browser."); return; }
+  document.getElementById("revealKeyValue").textContent = val;
+  document.getElementById("keyRevealModal").classList.remove("hidden");
 }
 
 function _copyRevealedKey() {

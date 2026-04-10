@@ -123,8 +123,8 @@ def _migrate():
         ("users",     "provider_user_id", "TEXT"),
         ("users",     "is_enabled",       "INTEGER DEFAULT 1"),
         ("users",     "workspaces",       "TEXT DEFAULT '[\"__ALL__\"]'"),
-        ("users",     "updated_at",       "TEXT"),
-        # password_hash was NOT NULL in old schema; SQLite doesn't allow ALTER COLUMN;
+        ("users",     "updated_at",       "TEXT"),        # tests: denormalized script name for historical accuracy
+        ("tests",     "script_name",      "TEXT"),        # password_hash was NOT NULL in old schema; SQLite doesn't allow ALTER COLUMN;
         # new rows created by ORM will have it as NULL (fine for OAuth accounts)
     ]
     with engine.connect() as conn:

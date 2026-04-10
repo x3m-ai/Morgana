@@ -13,6 +13,7 @@ class Test(Base):
     # What was run
     chain_id = Column(String, ForeignKey("chains.id"), nullable=True)
     script_id = Column(String, ForeignKey("scripts.id"), nullable=True)
+    script_name = Column(String)  # denormalized -- survives script deletion/reload
     tcode = Column(String)
     # Where / by whom
     agent_id = Column(String, ForeignKey("agents.id"), nullable=True, index=True)

@@ -213,6 +213,7 @@ def execute_script(script_id: str, payload: dict, db: Session = Depends(get_db),
     test = Test(
         id=str(uuid.uuid4()),
         script_id=script_id,
+        script_name=s.name,
         tcode=s.tcode,
         agent_id=agent.id,
         operation_name=f"manual:{s.name}",

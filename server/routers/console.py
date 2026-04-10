@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from core import console_sessions
-from core.auth import verify_key_value
+from core.auth import verify_key_value, require_api_key
 from database import get_db, SessionLocal
 from models.agent import Agent
 
@@ -39,16 +39,14 @@ router = APIRouter()
 @router.delete("/session/{paw}")
 async def reset_session(
     paw: str,
-    key: str = Query(default=""),
     db: Session = Depends(get_db),
+    _auth: str = Depends(require_api_key),
 ):
     """Force-close any active or pending console session for this agent.
 
     Called by the UI Reset button to clean up a stale session before
     opening a fresh console.
     """
-    if not verify_key_value(key, db):
-        raise HTTPException(status_code=403, detail="Unauthorized")
 
     sess = console_sessions.get(paw)
     if sess:
@@ -148,15 +146,122 @@ async def _relay_lifetime(server: asyncio.Server) -> None:
     log.debug("[CONSOLE] TCP relay expired and closed")
 
 
-# ---------------------------------------------------------------------------
-# Native console (opens real PowerShell window on operator machine)
-# ---------------------------------------------------------------------------
+def _spawn_in_user_session(script_path: str) -> int:
+    """Launch a PowerShell script in the active interactive user session.
+
+    When Morgana runs as an NT Service (Session 0), subprocess.Popen creates
+    a process in Session 0 which is invisible to the logged-in user.
+    This function uses WTSQueryUserToken + CreateProcessAsUserW to spawn the
+    process directly in the active user's desktop session (Session 1+).
+
+    Falls back to subprocess.Popen if WTSQueryUserToken fails (e.g. running
+    interactively outside of a service context).
+
+    Returns the spawned process PID.
+    """
+    import ctypes
+    import ctypes.wintypes as W
+
+    kernel32 = ctypes.windll.kernel32
+    wtsapi32 = ctypes.windll.wtsapi32
+    advapi32 = ctypes.windll.advapi32
+    userenv  = ctypes.windll.userenv
+
+    session_id = kernel32.WTSGetActiveConsoleSessionId()
+
+    hToken = W.HANDLE()
+    if not wtsapi32.WTSQueryUserToken(session_id, ctypes.byref(hToken)):
+        err = kernel32.GetLastError()
+        log.warning("[CONSOLE] WTSQueryUserToken failed (err=%d), using Popen fallback", err)
+        proc = subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script_path],
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
+        return proc.pid
+
+    lpEnv = ctypes.c_void_p()
+    userenv.CreateEnvironmentBlock(ctypes.byref(lpEnv), hToken, False)
+
+    class STARTUPINFOW(ctypes.Structure):
+        _fields_ = [
+            ("cb",              W.DWORD),
+            ("lpReserved",      W.LPWSTR),
+            ("lpDesktop",       W.LPWSTR),
+            ("lpTitle",         W.LPWSTR),
+            ("dwX",             W.DWORD), ("dwY",             W.DWORD),
+            ("dwXSize",         W.DWORD), ("dwYSize",         W.DWORD),
+            ("dwXCountChars",   W.DWORD), ("dwYCountChars",   W.DWORD),
+            ("dwFillAttribute", W.DWORD),
+            ("dwFlags",         W.DWORD),
+            ("wShowWindow",     W.WORD),
+            ("cbReserved2",     W.WORD),
+            ("lpReserved2",     ctypes.c_void_p),
+            ("hStdInput",  W.HANDLE),
+            ("hStdOutput", W.HANDLE),
+            ("hStdError",  W.HANDLE),
+        ]
+
+    class PROCESS_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("hProcess",    W.HANDLE),
+            ("hThread",     W.HANDLE),
+            ("dwProcessId", W.DWORD),
+            ("dwThreadId",  W.DWORD),
+        ]
+
+    si = STARTUPINFOW()
+    si.cb        = ctypes.sizeof(si)
+    si.lpDesktop = "winsta0\\default"
+    pi = PROCESS_INFORMATION()
+
+    CREATE_NEW_CONSOLE        = 0x00000010
+    CREATE_UNICODE_ENVIRONMENT = 0x00000400
+    NORMAL_PRIORITY_CLASS     = 0x00000020
+
+    cmd_line = f'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{script_path}"'
+
+    ok = advapi32.CreateProcessAsUserW(
+        hToken,
+        None,
+        cmd_line,
+        None, None,
+        False,
+        NORMAL_PRIORITY_CLASS | CREATE_NEW_CONSOLE | CREATE_UNICODE_ENVIRONMENT,
+        lpEnv,
+        None,
+        ctypes.byref(si),
+        ctypes.byref(pi),
+    )
+
+    pid = pi.dwProcessId if ok else -1
+
+    if ok:
+        kernel32.CloseHandle(pi.hProcess)
+        kernel32.CloseHandle(pi.hThread)
+    if lpEnv:
+        userenv.DestroyEnvironmentBlock(lpEnv)
+    kernel32.CloseHandle(hToken)
+
+    if not ok:
+        err = kernel32.GetLastError()
+        log.warning("[CONSOLE] CreateProcessAsUserW failed (err=%d), using Popen fallback", err)
+        proc = subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script_path],
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
+        return proc.pid
+
+    log.info("[CONSOLE] Spawned PowerShell in user session %d, PID=%d", session_id, pid)
+    return pid
+
+
+
 
 @router.post("/native/{paw}")
 async def open_native_console(
     paw: str,
-    key: str = Query(default=""),
     db: Session = Depends(get_db),
+    _auth: str = Depends(require_api_key),
 ):
     """Spawn a real PowerShell terminal window connected to this agent.
 
@@ -165,8 +270,6 @@ async def open_native_console(
       2. The TCP relay bridges the PowerShell window to /ws/{paw}.
       3. PowerShell uses Console.ReadKey($true) for raw input - bulletproof.
     """
-    if not verify_key_value(key, db):
-        raise HTTPException(status_code=403, detail="Unauthorized")
 
     # Reset any stale session first
     existing = console_sessions.get(paw)
@@ -309,11 +412,8 @@ async def open_native_console(
         log.info("[CONSOLE] PS1 temp script written to %s", tf.name)
 
         try:
-            proc = subprocess.Popen(
-                ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tf.name],
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
-            )
-            log.info("[CONSOLE] PowerShell window spawned, PID=%d, port=%d", proc.pid, port)
+            pid = _spawn_in_user_session(tf.name)
+            log.info("[CONSOLE] PowerShell window spawned, PID=%d, port=%d", pid, port)
         except Exception as exc:
             log.error("[CONSOLE] Failed to spawn PowerShell window: %s", exc)
             raise HTTPException(status_code=500, detail=f"Failed to spawn console: {exc}")
@@ -425,23 +525,7 @@ async def browser_connect(
 @router.websocket("/agent/{paw}")
 async def agent_connect(websocket: WebSocket, paw: str):
     """Agent dials back here after receiving console_paw in a poll response."""
-    # Auth via Authorization header (gorilla/websocket supports headers in Dial)
-    auth = websocket.headers.get("authorization", "")
-    token = auth.replace("Bearer ", "").strip()
-
-    # Look up agent to verify token
-    # We do a quick synchronous DB check via a new session
-    from database import SessionLocal
-    db: Session = SessionLocal()
-    try:
-        ag = db.query(Agent).filter(Agent.paw == paw).first()
-        if ag and ag.token_hash:
-            token_hash = hashlib.sha256(token.encode()).hexdigest()
-            if ag.token_hash != token_hash:
-                await websocket.close(1008, "Unauthorized")
-                return
-    finally:
-        db.close()
+    # No auth - agent C2 channel is unauthenticated (internal network only)
 
     sess = console_sessions.get(paw)
     if not sess:

@@ -1,13 +1,12 @@
-"""Agent router: POST /api/v2/agent/register - one-time enrollment."""
+"""Agent router: POST /api/v2/agent/register - open enrollment, no auth required."""
 
-import hashlib
 import logging
 import secrets
 import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -18,27 +17,9 @@ from models.agent import Agent
 log = logging.getLogger("morgana.router.register")
 router = APIRouter()
 
-# In-memory deploy token store (production: use DB or Redis)
-_deploy_tokens: dict = {}
-
-
-def create_deploy_token() -> str:
-    token = secrets.token_urlsafe(32)
-    _deploy_tokens[token] = {"used": False, "created_at": datetime.utcnow()}
-    return token
-
-
-def _validate_deploy_token(token: str) -> bool:
-    entry = _deploy_tokens.get(token)
-    if not entry or entry["used"]:
-        # Allow the settings API key as a deploy token for simplicity
-        return token == settings.api_key
-    entry["used"] = True
-    return True
-
 
 class RegisterRequest(BaseModel):
-    deploy_token: str
+    deploy_token: Optional[str] = ""  # accepted but ignored - no auth required
     hostname: str
     platform: str
     architecture: Optional[str] = "amd64"
@@ -48,12 +29,7 @@ class RegisterRequest(BaseModel):
 
 @router.post("/register")
 async def register(body: RegisterRequest, db: Session = Depends(get_db)):
-    if not _validate_deploy_token(body.deploy_token):
-        raise HTTPException(status_code=403, detail="Invalid or expired deploy token")
-
-    paw = secrets.token_hex(8)  # 16-char hex ID — 64-bit space, collision-safe
-    agent_token = secrets.token_urlsafe(48)
-    token_hash = hashlib.sha256(agent_token.encode()).hexdigest()
+    paw = secrets.token_hex(8)  # 16-char hex ID - 64-bit space, collision-safe
 
     agent = Agent(
         id=str(uuid.uuid4()),
@@ -66,9 +42,7 @@ async def register(body: RegisterRequest, db: Session = Depends(get_db)):
         status="online",
         last_seen=datetime.utcnow(),
         beacon_interval=settings.default_beacon_interval,
-        token_hash=token_hash,
         enrolled_at=datetime.utcnow(),
-        enrolled_by=hashlib.sha256(body.deploy_token.encode()).hexdigest(),
     )
     db.add(agent)
     db.commit()
@@ -77,7 +51,7 @@ async def register(body: RegisterRequest, db: Session = Depends(get_db)):
 
     return {
         "paw": paw,
-        "agent_token": agent_token,
+        "agent_token": "",  # no token auth - agents connect freely,
         "server_cert_fingerprint": "self-signed",
         "beacon_interval": settings.default_beacon_interval,
         "work_dir": r"C:\ProgramData\Morgana\work" if body.platform == "windows" else "/var/lib/morgana/work",

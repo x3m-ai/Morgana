@@ -295,6 +295,16 @@ body {
 
 .data-table tr:last-child td { border-bottom: none; }
 
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.sortable-th:hover { color: var(--accent, #667eea); }
+.sortable-th::after       { content: " \25B4\25BE"; color: var(--text-muted, #888); font-size: 0.7em; vertical-align: middle; }
+.sortable-th.sort-asc::after  { content: " \25B2"; color: var(--accent, #667eea); font-size: 0.75em; vertical-align: middle; }
+.sortable-th.sort-desc::after { content: " \25BC"; color: var(--accent, #667eea); font-size: 0.75em; vertical-align: middle; }
+
 .empty-row {
   text-align: center;
   color: var(--text-muted);
@@ -1033,4 +1043,92 @@ body {
   white-space: pre-wrap;
   word-break: break-all;
   margin-top: 6px;
+}
+
+/* ─── Tests: stats bar ───────────────────────────────────────────────────────── */
+.tests-statsbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.tsb-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  padding: 10px 14px;
+  min-width: 76px;
+  text-align: center;
+  flex: 1;
+}
+
+.tsb-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+  margin-bottom: 3px;
+}
+
+.tsb-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.tsb-running  .tsb-value { color: var(--warning); }
+.tsb-running              { border-color: var(--warning); }
+.tsb-finished .tsb-value  { color: var(--success); }
+.tsb-finished             { border-color: var(--success); }
+.tsb-failed   .tsb-value  { color: var(--danger); }
+.tsb-failed               { border-color: var(--danger); }
+.tsb-pending  .tsb-value  { color: var(--info); }
+.tsb-rate     .tsb-value  { color: var(--success); }
+
+/* ─── Tests: filter bar ─────────────────────────────────────────────────────── */
+.tests-filterbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filter-input,
+.filter-select {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 5px 10px;
+  height: 30px;
+}
+
+.filter-input {
+  min-width: 200px;
+  flex: 1;
+}
+
+.filter-select {
+  cursor: pointer;
+}
+
+.filter-input:focus,
+.filter-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.filter-date {
+  min-width: 130px;
+  flex: none;
+}
+
+.filter-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
 }

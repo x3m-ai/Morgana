@@ -33,23 +33,22 @@ def _server_url(request: Request) -> str:
     return f"{scheme}://{host}:{port}"
 
 
-def _win_script(server_url: str, token: str, interval: int) -> str:
+def _win_script(server_url: str, interval: int) -> str:
     """Generate a pre-baked PowerShell installer for the Windows agent."""
     return f"""# Morgana Agent - Windows One-liner Installer
 # Version: {settings.version}  /  Source: {server_url}
 #
 # ONE-LINER (run as Administrator in PowerShell 5.1+):
 #
-#   [Net.ServicePointManager]::ServerCertificateValidationCallback={{$true}}; iex (New-Object Net.WebClient).DownloadString('{server_url}/install/windows?token={token}')
+#   [Net.ServicePointManager]::ServerCertificateValidationCallback={{$true}}; iex (New-Object Net.WebClient).DownloadString('{server_url}/install/windows')
 #
 # PowerShell 7+:
-#   irm -SkipCertificateCheck '{server_url}/install/windows?token={token}' | iex
+#   irm -SkipCertificateCheck '{server_url}/install/windows' | iex
 
 [Net.ServicePointManager]::ServerCertificateValidationCallback = {{$true}}
 $ErrorActionPreference = "Stop"
 
 $ServerUrl  = "{server_url}"
-$Token      = "{token}"
 $Interval   = {interval}
 $InstallDir = "C:\\ProgramData\\Morgana\\agent"
 $WorkDir    = "$InstallDir\\work"
@@ -79,7 +78,7 @@ if (-not (Test-Path $BinaryPath)) {{
 Write-Host "[SUCCESS] Binary ready: $BinaryPath"
 
 Write-Host "[INFO] Installing MorganaAgent NT service ..."
-& $BinaryPath install --server $ServerUrl --token $Token --interval $Interval
+& $BinaryPath install --server $ServerUrl --interval $Interval
 if ($LASTEXITCODE -ne 0) {{
     Write-Host "[ERROR] Agent install failed (exit $LASTEXITCODE)." -ForegroundColor Red
     exit 1
@@ -96,19 +95,18 @@ Write-Host ""
 """
 
 
-def _linux_script(server_url: str, token: str, interval: int) -> str:
+def _linux_script(server_url: str, interval: int) -> str:
     """Generate a pre-baked bash installer for the Linux agent."""
     return f"""#!/usr/bin/env bash
 # Morgana Agent - Linux One-liner Installer
 # Version: {settings.version}  /  Source: {server_url}
 #
 # ONE-LINER (run as root):
-#   curl -ksSL '{server_url}/install/linux?token={token}' | sudo bash
+#   curl -ksSL '{server_url}/install/linux' | sudo bash
 
 set -e
 
 SERVER_URL="{server_url}"
-TOKEN="{token}"
 INTERVAL={interval}
 INSTALL_DIR="/opt/morgana/agent"
 BINARY="$INSTALL_DIR/morgana-agent"
@@ -128,7 +126,7 @@ chmod +x "$BINARY"
 echo "[SUCCESS] Binary ready: $BINARY"
 
 echo "[INFO] Installing morgana-agent systemd service ..."
-"$BINARY" install --server "$SERVER_URL" --token "$TOKEN" --interval "$INTERVAL"
+"$BINARY" install --server "$SERVER_URL" --interval "$INTERVAL"
 
 echo ""
 echo "[SUCCESS] morgana-agent installed and started."
@@ -158,8 +156,7 @@ async def install_windows(
         iex (New-Object Net.WebClient).DownloadString('https://SERVER:8888/install/windows?token=TOKEN')
     """
     server_url = _server_url(request)
-    t = token or settings.api_key
-    script = _win_script(server_url, t, interval)
+    script = _win_script(server_url, interval)
     log.info("[DEPLOY] Windows install script requested from %s", request.client.host if request.client else "?")
     return PlainTextResponse(content=script, media_type="text/plain")
 
@@ -176,8 +173,7 @@ async def install_linux(
         curl -ksSL 'https://SERVER:8888/install/linux?token=TOKEN' | sudo bash
     """
     server_url = _server_url(request)
-    t = token or settings.api_key
-    script = _linux_script(server_url, t, interval)
+    script = _linux_script(server_url, interval)
     log.info("[DEPLOY] Linux install script requested from %s", request.client.host if request.client else "?")
     return PlainTextResponse(content=script, media_type="text/plain")
 

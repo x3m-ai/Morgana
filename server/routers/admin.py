@@ -129,6 +129,8 @@ def get_server_info(_: str = Depends(require_api_key)):
         "platform_version": platform.version()[:80],
         "python_version": platform.python_version(),
         "server_port": settings.port,
+        "ssl_enabled": settings.ssl_enabled,
+        "agent_port": settings.agent_port if settings.ssl_enabled else settings.port,
         "memory": memory_info,
         "disk": disk_info,
     }
@@ -160,15 +162,9 @@ def reload_atomics(_: str = Depends(require_api_key)):
 
 @router.post("/deploy-token")
 def create_deploy_token_endpoint(_: str = Depends(require_api_key)):
-    """Generate a one-time deploy token for agent installation.
-
-    The token is valid for a single agent registration and expires after use.
-    Returns the token in the response — pass it as --token to the agent installer.
-    """
-    from routers.agent.register import create_deploy_token
-    token = create_deploy_token()
-    log.info("[ADMIN] Deploy token generated")
-    return {"deploy_token": token}
+    """No-op - agent registration no longer requires a deploy token."""
+    log.info("[ADMIN] Deploy token requested - auth-free mode, returning empty")
+    return {"deploy_token": ""}
 
 
 @router.get("/atomics/status")

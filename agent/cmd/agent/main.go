@@ -57,8 +57,8 @@ func handleInstall(log *logger.Logger) {
 	interval := fs.Int("interval", 30, "Beacon interval in seconds (default: 30)")
 	_ = fs.Parse(os.Args[2:])
 
-	if *serverURL == "" || *token == "" {
-		fmt.Fprintln(os.Stderr, "ERROR: --server and --token are required for install")
+if *serverURL == "" {
+                fmt.Fprintln(os.Stderr, "ERROR: --server is required for install")
 		os.Exit(1)
 	}
 

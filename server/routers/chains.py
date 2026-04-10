@@ -432,6 +432,7 @@ def _run_script_node(db: Session, node: dict, agent_paw: str, chain_name: str, s
     test = Test(
         id=test_id,
         script_id=s.id,
+        script_name=s.name,
         tcode=s.tcode,
         agent_id=agent.id,
         operation_name=f"chain:{chain_name or s.name}",
