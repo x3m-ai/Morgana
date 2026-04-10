@@ -27,6 +27,7 @@ from models.agent import Agent
 from models.chain import Chain
 from models.chain_execution import ChainExecution
 from models.script import Script
+from models.test import Test as TestRecord
 
 log = logging.getLogger("morgana.router.synchronize_morgana")
 
@@ -261,56 +262,40 @@ def synchronize_morgana(
 
     db.commit()
 
-    # Fetch ALL ChainExecution records — these are what the Morgana UI shows as "Tests".
-    # One row per execution, sorted newest first, limit 2000.
-    agents_by_id  = {a.id: a for a in db.query(Agent).all()}
-    chains_by_id  = {c.id: c for c in db.query(Chain).all()}
-
-    all_executions = (
-        db.query(ChainExecution)
-        .order_by(ChainExecution.started_at.desc())
+    # Fetch ALL Test records from Morgana (same source as the UI /api/v2/tests endpoint).
+    # Tests are the individual script executions dispatched to agents.
+    agents_by_id = {a.id: a for a in db.query(Agent).all()}
+    all_tests = (
+        db.query(TestRecord)
+        .order_by(TestRecord.created_at.desc())
         .limit(2000)
         .all()
     )
-
     all_morgana_tests = []
-    for ex in all_executions:
-        ag  = agents_by_id.get(ex.agent_id)
-        ag_str = f"{ag.hostname} [{ag.paw}]" if ag else (ex.agent_hostname or "")
-        if ag_str == "" and ex.agent_paw:
-            ag_str = ex.agent_paw
-
-        # chain_name already holds the full display name (e.g. "LSASS memory access T1003.001")
-        name = (ex.chain_name or "").strip()
-
-        # Derive TCode from the linked chain's tcode_coverage, fallback to regex on name
-        tcode_val = ""
-        linked_chain = chains_by_id.get(ex.chain_id or "")
-        if linked_chain and linked_chain.tcode_coverage:
-            tcode_val = linked_chain.tcode_coverage.split(",")[0].strip()
-        if not tcode_val:
-            m = re.search(r"T\d{4}(?:\.\d{3})?", name, re.IGNORECASE)
-            tcode_val = m.group(0).upper() if m else ""
-
-        dur       = _format_duration(ex.started_at, ex.finished_at)
-        state_out = _map_state(ex.state or "")
-        exit_code = _exit_code_from_steps(ex.step_logs or "", ex.state or "")
-
+    for t in all_tests:
+        ag = agents_by_id.get(t.agent_id)
+        ag_str = f"{ag.hostname} [{ag.paw}]" if ag else ""
+        # Strip "chain:" prefix that is prepended when creating Test records in chains.py
+        name = (t.operation_name or "").removeprefix("chain:").strip()
+        tcode_val = t.tcode or ""
+        dur = _format_duration(t.started_at, t.finished_at)
+        state_out = _map_state(t.state or "")
+        exit_code = t.exit_code if t.exit_code is not None else ""
         all_morgana_tests.append({
             "name":        name,
             "tcode":       tcode_val,
-            "id":          ex.id,
+            "id":          t.id,
             "state":       state_out,
             "exit_code":   exit_code,
-            "date":        _fmt_dt(ex.started_at),
-            "type":        "Chain",
+            "date":        _fmt_dt(t.started_at or t.created_at),
+            "type":        "Test",
             "agent":       ag_str,
             "duration":    dur,
-            "created":     _fmt_dt(ex.started_at),
-            "finished":    _fmt_dt(ex.finished_at),
-            "stdout":      _extract_stdout(ex)[:500],
+            "created":     _fmt_dt(t.started_at),
+            "finished":    _fmt_dt(t.finished_at),
+            "stdout":      (t.stdout or "")[:500],
             "description": (
-                f"Chain: {name} | Agent: {ag_str} | "
+                f"Test: {name} | Agent: {ag_str} | "
                 f"Duration: {dur} | State: {state_out}"
             ),
         })
