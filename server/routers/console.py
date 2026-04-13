@@ -286,8 +286,7 @@ async def open_native_console(
 
     # Start TCP relay
     port = _free_port()
-    ws_scheme = "wss" if settings.ssl_enabled else "ws"
-    ws_url = f"{ws_scheme}://localhost:{settings.port}/api/v2/console/ws/{paw}?key={settings.api_key}"
+    ws_url = f"wss://localhost:{settings.port}/api/v2/console/ws/{paw}?key={settings.api_key}"
     await _tcp_relay(port, ws_url)
 
     if sys.platform == "win32":

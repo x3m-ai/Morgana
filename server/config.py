@@ -57,13 +57,10 @@ class Settings:
         "null",  # file:// origins (Excel Desktop add-in)
     ]
 
-    # TLS - set MORGANA_SSL=true + provide certs for production
-    # In dual-mode: HTTPS on MORGANA_PORT (8888) for Merlino/Excel, HTTP on MORGANA_AGENT_PORT (8889) for agents
-    ssl_enabled: bool = os.getenv("MORGANA_SSL", "false").lower() == "true"
+    # TLS - always HTTPS. Override cert paths via env vars if needed.
+    # Self-signed certs are auto-generated at startup if not found.
     ssl_certfile: str = os.getenv("MORGANA_CERT", str(BASE_DIR / "certs" / "server.crt"))
     ssl_keyfile: str = os.getenv("MORGANA_KEY", str(BASE_DIR / "certs" / "server.key"))
-    # Plain-HTTP port for Go agents (no cert, no TLS) -- only used when ssl_enabled=True
-    agent_port: int = int(os.getenv("MORGANA_AGENT_PORT", "8889"))
 
     # Database
     db_path: str = os.getenv("MORGANA_DB", str(BASE_DIR / "db" / "morgana.db"))

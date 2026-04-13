@@ -68,10 +68,9 @@ def _verify_pw(plain: str, hashed: str) -> bool:
 def _infer_public_url(request: Request) -> str:
     if settings.oauth_public_url:
         return settings.oauth_public_url.rstrip("/")
-    scheme = "https" if settings.ssl_enabled else request.url.scheme
-    host   = request.url.hostname
-    port   = settings.port
-    return f"{scheme}://{host}:{port}"
+    host = request.url.hostname
+    port = settings.port
+    return f"https://{host}:{port}"
 
 
 def _break_glass_has_default_password(u: User) -> bool:

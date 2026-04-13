@@ -410,15 +410,11 @@ async function showDeployToken() {
     ? _serverInfo.dns_name.trim()
     : (_serverInfo.ip_address || window.location.hostname);
   const port = _serverInfo.server_port || window.location.port || 8888;
-  const serverUrl = `http://${host}:${port}`;
+  const serverUrl = `https://${host}:${port}`;
 
-  // Agent always connects via plain HTTP (dual-mode: HTTPS on server_port, HTTP on agent_port)
-  const agentPort = _serverInfo.agent_port || (_serverInfo.ssl_enabled ? 8889 : (port || 8888));
-  const agentUrl = `http://${host}:${agentPort}`;
+  const winCmd = `curl.exe -k -o morgana-agent.exe ${serverUrl}/download/morgana-agent.exe; .\\morgana-agent.exe install --server ${serverUrl}`;
 
-  const winCmd = `[Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; Invoke-WebRequest -Uri '${agentUrl}/download/morgana-agent.exe' -OutFile morgana-agent.exe; .\\morgana-agent.exe install --server ${agentUrl}`;
-
-  const linCmd = `curl -ksSL '${agentUrl}/download/morgana-agent' -o morgana-agent && chmod +x morgana-agent && ./morgana-agent install --server ${agentUrl}`;
+  const linCmd = `curl -ksSL '${serverUrl}/download/morgana-agent' -o morgana-agent && chmod +x morgana-agent && ./morgana-agent install --server ${serverUrl}`;
 
   document.getElementById("deploy-win-cmd").textContent = winCmd;
   document.getElementById("deploy-lin-cmd").textContent = linCmd;

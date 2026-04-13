@@ -26,11 +26,10 @@ router = APIRouter()
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _server_url(request: Request) -> str:
-    """Infer the server public URL from the incoming request."""
-    scheme = "https" if settings.ssl_enabled else "http"
-    host   = request.url.hostname
-    port   = settings.port
-    return f"{scheme}://{host}:{port}"
+    """Infer the server public URL from the incoming request. Always HTTPS."""
+    host = request.url.hostname
+    port = settings.port
+    return f"https://{host}:{port}"
 
 
 def _win_script(server_url: str, interval: int) -> str:
@@ -38,14 +37,12 @@ def _win_script(server_url: str, interval: int) -> str:
     return f"""# Morgana Agent - Windows One-liner Installer
 # Version: {settings.version}  /  Source: {server_url}
 #
-# ONE-LINER (run as Administrator in PowerShell 5.1+):
+# ONE-LINER (run as Administrator in PowerShell):
 #
-#   [Net.ServicePointManager]::ServerCertificateValidationCallback={{$true}}; iex (New-Object Net.WebClient).DownloadString('{server_url}/install/windows')
+#   curl.exe -k -o morgana-agent.exe {server_url}/download/morgana-agent.exe; .\morgana-agent.exe install --server {server_url}
 #
-# PowerShell 7+:
+# PowerShell 7+ alternative:
 #   irm -SkipCertificateCheck '{server_url}/install/windows' | iex
-
-[Net.ServicePointManager]::ServerCertificateValidationCallback = {{$true}}
 $ErrorActionPreference = "Stop"
 
 $ServerUrl  = "{server_url}"
@@ -70,7 +67,7 @@ New-Item -ItemType Directory -Path $WorkDir    -Force | Out-Null
 New-Item -ItemType Directory -Path "$InstallDir\\logs" -Force | Out-Null
 
 Write-Host "[INFO] Downloading morgana-agent.exe from $ServerUrl ..."
-(New-Object Net.WebClient).DownloadFile("$ServerUrl/download/morgana-agent.exe", $BinaryPath)
+curl.exe -k -sS -o $BinaryPath "$ServerUrl/download/morgana-agent.exe"
 if (-not (Test-Path $BinaryPath)) {{
     Write-Host "[ERROR] Download failed - binary not found at $BinaryPath." -ForegroundColor Red
     exit 1

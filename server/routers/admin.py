@@ -129,8 +129,7 @@ def get_server_info(_: str = Depends(require_api_key)):
         "platform_version": platform.version()[:80],
         "python_version": platform.python_version(),
         "server_port": settings.port,
-        "ssl_enabled": settings.ssl_enabled,
-        "agent_port": settings.agent_port if settings.ssl_enabled else settings.port,
+        "ssl_enabled": True,
         "memory": memory_info,
         "disk": disk_info,
     }

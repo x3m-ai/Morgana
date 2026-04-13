@@ -157,7 +157,7 @@ async def lifespan(app: FastAPI):
     else:
         log.warning("[START] Atomic Red Team path not configured or not found: %s", settings.atomic_path)
 
-    log.info("[START] Morgana Server ready on port %d", settings.port)
+    log.info("[START] Morgana Server ready on HTTPS port %d", settings.port)
     _monitor_task = asyncio.create_task(_stale_agent_monitor())
     log.info("[MONITOR] Stale agent monitor started")
     yield
@@ -265,55 +265,82 @@ async def root_redirect():
     return RedirectResponse(url="/ui/", status_code=302)
 
 
+def _ensure_tls_certs() -> None:
+    """Auto-generate a self-signed TLS certificate if the cert/key files are missing.
+
+    Uses the `cryptography` package (already in requirements.txt).
+    The generated cert is valid for 10 years and covers the server's hostname
+    and common LAN names. Agents use InsecureSkipVerify so CA validation is not
+    required; the cert is only needed to enable TLS encryption.
+    """
+    cert_path = Path(settings.ssl_certfile)
+    key_path = Path(settings.ssl_keyfile)
+
+    if cert_path.exists() and key_path.exists():
+        log.info("[TLS] Cert files found: %s", cert_path)
+        return
+
+    log.warning("[TLS] Cert not found — auto-generating self-signed certificate...")
+
+    import datetime
+    import ipaddress
+    import socket
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    hostname = socket.gethostname()
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+    subject = issuer = x509.Name([
+        x509.NameAttribute(NameOID.COUNTRY_NAME, "GB"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "X3M.AI"),
+        x509.NameAttribute(NameOID.COMMON_NAME, hostname),
+    ])
+
+    san = x509.SubjectAlternativeName([
+        x509.DNSName(hostname),
+        x509.DNSName("localhost"),
+        x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
+    ])
+
+    now = datetime.datetime.utcnow()
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=3650))
+        .add_extension(san, critical=False)
+        .sign(key, hashes.SHA256())
+    )
+
+    cert_path.parent.mkdir(parents=True, exist_ok=True)
+
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_path.write_bytes(key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    ))
+    key_path.chmod(0o600)
+
+    log.info("[TLS] Self-signed cert generated: %s (valid 10 years)", cert_path)
+
+
 if __name__ == "__main__":
-    if settings.ssl_enabled:
-        # Dual-server mode:
-        #   HTTPS on settings.port (8888)        -> Merlino / Excel add-in
-        #   HTTP  on settings.agent_port (8889)  -> Go agents (plain HTTP, no cert)
-        _agent_http_app = FastAPI(title="Morgana Agent Endpoint")
-        _agent_http_app.include_router(register.router, prefix="/api/v2/agent", tags=["agent"])
-        _agent_http_app.include_router(poll.router,     prefix="/api/v2/agent", tags=["agent"])
-        _agent_http_app.include_router(result.router,   prefix="/api/v2/agent", tags=["agent"])
-        _agent_http_app.include_router(heartbeat.router, prefix="/api/v2/agent", tags=["agent"])
-        _agent_http_app.include_router(deploy_router, tags=["deploy"])
-        _agent_http_app.include_router(console_router, prefix="/api/v2/console", tags=["console"])
+    _ensure_tls_certs()
 
-        @_agent_http_app.get("/health")
-        async def _agent_health():
-            return {"status": "ok", "version": settings.version}
-
-        async def _serve_dual():
-            https_cfg = uvicorn.Config(
-                app,
-                host=settings.host,
-                port=settings.port,
-                ssl_keyfile=settings.ssl_keyfile,
-                ssl_certfile=settings.ssl_certfile,
-                log_level="warning",
-            )
-            http_cfg = uvicorn.Config(
-                _agent_http_app,
-                host=settings.host,
-                port=settings.agent_port,
-                log_level="warning",
-            )
-            log.info(
-                "[START] Dual-server: HTTPS :%d (Merlino) + HTTP :%d (agents)",
-                settings.port, settings.agent_port,
-            )
-            await asyncio.gather(
-                uvicorn.Server(https_cfg).serve(),
-                uvicorn.Server(http_cfg).serve(),
-            )
-
-        asyncio.run(_serve_dual())
-    else:
-        uvicorn.run(
-            "main:app",
-            host=settings.host,
-            port=settings.port,
-            ssl_keyfile=None,
-            ssl_certfile=None,
-            reload=settings.debug,
-            log_level="info",
-        )
+    log.info("[START] HTTPS-only mode on port %d", settings.port)
+    uvicorn.run(
+        "main:app",
+        host=settings.host,
+        port=settings.port,
+        ssl_keyfile=settings.ssl_keyfile,
+        ssl_certfile=settings.ssl_certfile,
+        reload=settings.debug,
+        log_level="info",
+    )
