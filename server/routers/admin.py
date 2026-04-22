@@ -15,6 +15,8 @@ import platform
 import shlex
 import shutil
 import socket
+import ssl
+import sys
 import threading
 import urllib.request
 import zipfile
@@ -29,6 +31,28 @@ from core.auth import require_api_key
 
 log = logging.getLogger("morgana.routers.admin")
 router = APIRouter()
+
+
+def _make_ssl_context() -> ssl.SSLContext:
+    """
+    SSL context that works in PyInstaller frozen apps (OpenSSL, not SChannel).
+    Uses certifi CA bundle when available -- certifi is always bundled because
+    httpx depends on it, so this is safe in both dev and frozen builds.
+    Falls back to ssl.create_default_context() which works on non-frozen builds.
+    """
+    try:
+        import certifi as _certifi
+        return ssl.create_default_context(cafile=_certifi.where())
+    except Exception:
+        pass
+    ctx = ssl.create_default_context()
+    # On Windows non-frozen builds, additionally load from the system store
+    if sys.platform == "win32":
+        try:
+            ctx.load_default_certs(ssl.Purpose.SERVER_AUTH)
+        except Exception:
+            pass
+    return ctx
 
 # In-memory last-run stats (updated by reload endpoint)
 _last_stats: dict = {}
@@ -64,7 +88,7 @@ def _run_download() -> None:
         # ── Phase 1: connect
         _dl_set("connecting", 2, "Connecting to GitHub...")
         req = urllib.request.Request(GITHUB_ZIP, headers={"User-Agent": "Morgana/1.0"})
-        with urllib.request.urlopen(req, timeout=600) as resp:
+        with urllib.request.urlopen(req, context=_make_ssl_context(), timeout=600) as resp:
             content_length = int(resp.headers.get("Content-Length") or 0)
             mb_total = content_length // (1024 * 1024) if content_length else 0
             _dl_set("downloading", 5, f"Downloading (~{mb_total} MB)...")

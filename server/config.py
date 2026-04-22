@@ -48,7 +48,7 @@ def _get_or_generate_master_key() -> str:
 
 
 class Settings:
-    version: str = "0.2.0"
+    version: str = "0.2.1"
 
     # Server
     host: str = os.getenv("MORGANA_HOST", "0.0.0.0")

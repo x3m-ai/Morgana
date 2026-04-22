@@ -52,6 +52,18 @@ Ensure-Dir $logsDir
 Ensure-Dir $certsDir
 Ensure-Dir $configDir
 
+# Add Windows Defender exclusion BEFORE any files are written.
+# Atomic Red Team YAML files contain attack commands and trigger Defender heuristics.
+# C:\ProgramData\Morgana is the single data root -- DB, logs, certs and atomics all live here.
+Write-Info "Adding Windows Defender exclusion for $DataDir"
+try {
+    Add-MpPreference -ExclusionPath $DataDir -ErrorAction Stop
+    Write-Info "Defender exclusion added for $DataDir"
+} catch {
+    Write-Warning "[WARN] Could not add Defender exclusion: $_"
+    Write-Warning "[WARN] Add manually in PowerShell (admin): Add-MpPreference -ExclusionPath '$DataDir'"
+}
+
 $apiKeyFile = Join-Path $configDir "master-api-key.txt"
 if (Test-Path $apiKeyFile) {
     $apiKey = (Get-Content -Path $apiKeyFile -Raw).Trim()
