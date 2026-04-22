@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$AppDir,
@@ -119,6 +119,29 @@ if ($null -eq $existingRule) {
 
 Write-Info "Starting service"
 Start-Service -Name $ServiceName
+
+# Wait for the server to generate the self-signed TLS cert (up to 20 seconds),
+# then install it into the Windows Trusted Root store so browsers don't warn.
+Write-Info "Waiting for TLS certificate to be generated..."
+$waited = 0
+while (-not (Test-Path $certPath) -and $waited -lt 20) {
+    Start-Sleep -Seconds 1
+    $waited++
+}
+
+if (Test-Path $certPath) {
+    Write-Info "Installing TLS certificate into Windows Trusted Root store..."
+    $certResult = & certutil.exe -addstore -f "Root" $certPath 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Info "Certificate trusted -- browser will no longer show 'Not secure'"
+    } else {
+        Write-Warning "[WARN] certutil failed (exit $LASTEXITCODE): $certResult"
+        Write-Warning "[WARN] You can trust it manually: certutil -addstore -f Root `"$certPath`""
+    }
+} else {
+    Write-Warning "[WARN] Certificate not found at $certPath after $waited s -- skipping trust install"
+    Write-Warning "[WARN] Run manually after first start: certutil -addstore -f Root `"$certPath`""
+}
 
 Write-Host ""
 Write-Host "[SUCCESS] Morgana installation completed"
