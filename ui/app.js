@@ -114,6 +114,7 @@ function navigateTo(page) {
     case "chains":    loadChains();          break;
     case "campaigns": loadCampaigns();       break;
     case "tags":      loadTags();            break;
+    case "logs":      loadLogs();            break;
     case "admin":     loadAdminStatus();     break;
   }
 }
@@ -1220,8 +1221,111 @@ async function loadGlobalSettings() {
     const data = await apiFetch("/api/v2/admin/settings");
     const el = document.getElementById("globalBeaconInput");
     if (el && data.default_beacon_interval) el.value = data.default_beacon_interval;
+    const retEl = document.getElementById("logRetentionInput");
+    if (retEl && data.log_retention_hours) retEl.value = data.log_retention_hours;
   } catch (err) {
     console.warn("[ADMIN] Load global settings failed:", err.message);
+  }
+}
+
+// ─── Logs page ────────────────────────────────────────────────────────────────
+
+let _logsCurrentData = [];
+
+async function loadLogs() {
+  // Reset filters to default (last 30 min, no extra filters)
+  const fields = ["logsSince", "logsUntil", "logsSearch"];
+  fields.forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
+  const lvl = document.getElementById("logsLevel");
+  if (lvl) lvl.value = "";
+  await _fetchAndRenderLogs("30m", null);
+}
+
+async function applyLogsFilter() {
+  const since  = document.getElementById("logsSince")?.value;
+  const until  = document.getElementById("logsUntil")?.value;
+  const search = document.getElementById("logsSearch")?.value.trim();
+  const level  = document.getElementById("logsLevel")?.value;
+  const params = new URLSearchParams({ limit: "1000" });
+  if (since)  params.set("since",  new Date(since).toISOString());
+  if (until)  params.set("until",  new Date(until).toISOString());
+  if (search) params.set("search", search);
+  if (level)  params.set("level",  level);
+  if (!since) params.set("since",  "30m");  // fallback: at least 30 min
+  await _fetchAndRenderLogs(null, params);
+}
+
+async function _fetchAndRenderLogs(sinceShorthand, params) {
+  const tbody   = document.getElementById("logsTableBody");
+  const countEl = document.getElementById("logsCountText");
+  const exportBtn = document.getElementById("logsExportBtn");
+  if (exportBtn) exportBtn.disabled = true;
+  if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="empty-row">Loading...</td></tr>`;
+  try {
+    const p = params || new URLSearchParams({ since: sinceShorthand || "30m", limit: "500" });
+    const data = await apiFetch(`/api/v2/admin/logs?${p.toString()}`);
+    renderLogs(data);
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="empty-row" style="color:#f44336">Error: ${escHtml(err.message)}</td></tr>`;
+    if (countEl) countEl.textContent = "Error loading logs";
+  }
+}
+
+function renderLogs(entries) {
+  _logsCurrentData = entries || [];
+  const exportBtn = document.getElementById("logsExportBtn");
+  if (exportBtn) exportBtn.disabled = _logsCurrentData.length === 0;
+  const tbody   = document.getElementById("logsTableBody");
+  const countEl = document.getElementById("logsCountText");
+  if (!entries || !entries.length) {
+    if (tbody)   tbody.innerHTML = `<tr><td colspan="4" class="empty-row">No log entries found for the selected range.</td></tr>`;
+    if (countEl) countEl.textContent = "0 entries";
+    return;
+  }
+  if (countEl) countEl.textContent = `${entries.length} entr${entries.length === 1 ? "y" : "ies"}`;
+  if (!tbody) return;
+  tbody.innerHTML = entries.map(e => {
+    const ts  = e.ts ? new Date(e.ts).toLocaleString() : "-";
+    const lvl = (e.level || "INFO").toUpperCase();
+    const src = escHtml(e.name || "");
+    const msg = escHtml(e.msg || "");
+    const exc = e.exc ? `<div class="log-exc">${escHtml(e.exc)}</div>` : "";
+    return `<tr>
+      <td class="log-ts">${ts}</td>
+      <td><span class="log-badge log-badge-${lvl.toLowerCase()}">${lvl}</span></td>
+      <td class="log-name">${src}</td>
+      <td class="log-msg">${msg}${exc}</td>
+    </tr>`;
+  }).join("");
+}
+
+function exportLogs() {
+  if (!_logsCurrentData.length) return;
+  const now = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  const stamp = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const filename = `morgana-logs-${stamp}.json`;
+  const payload = JSON.stringify(_logsCurrentData, null, 2);
+  const blob = new Blob([payload], { type: "application/json" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function saveLogRetention() {
+  const val = parseInt(document.getElementById("logRetentionInput")?.value, 10);
+  if (!val || val < 1 || val > 168) { alert("Retention must be 1-168 hours"); return; }
+  try {
+    await apiFetch("/api/v2/admin/settings", { method: "PUT", body: JSON.stringify({ log_retention_hours: val }) });
+    const saved = document.getElementById("logRetentionSaved");
+    if (saved) { saved.style.display = "inline"; setTimeout(() => { saved.style.display = "none"; }, 2000); }
+  } catch (err) {
+    console.error("[ADMIN] Save log retention failed:", err.message);
   }
 }
 

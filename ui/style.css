@@ -1169,3 +1169,15 @@ body {
 .canary-step .cs-icon { font-size: .9rem; min-width: 1rem; text-align: center; }
 .canary-step .cs-spin { display: inline-block; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* == Logs page ================================================================ */
+.logs-table td          { font-size: 12.5px; vertical-align: top; }
+.log-ts                 { color: var(--text-muted); white-space: nowrap; font-size: 12px; }
+.log-name               { color: var(--text-muted); font-size: 11px; word-break: break-all; }
+.log-msg                { word-break: break-word; font-family: monospace; font-size: 12px; }
+.log-exc                { color: #ef9a9a; font-size: 11px; white-space: pre-wrap; margin-top: 4px; }
+
+.log-badge              { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.log-badge-info         { background: rgba(33,150,243,.15);  color: #64b5f6; }
+.log-badge-warning      { background: rgba(255,152,0,.15);   color: #ffb74d; }
+.log-badge-error        { background: rgba(244,67,54,.2);    color: #ef9a9a; }
+.log-badge-debug        { background: rgba(158,158,158,.12); color: #9e9e9e; }

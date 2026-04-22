@@ -4,18 +4,21 @@ Admin router — privileged server management operations.
 POST /api/v2/admin/atomics/reload   Full wipe + re-import of all Atomic Red Team scripts
 GET  /api/v2/admin/atomics/status   Show atomic loader stats from last run
 GET  /api/v2/admin/settings         Read global server settings
-PUT  /api/v2/admin/settings         Update global server settings (default_beacon_interval, dns_name, ...)
+PUT  /api/v2/admin/settings         Update global server settings (default_beacon_interval, dns_name, log_retention_hours, ...)
 GET  /api/v2/admin/server-info      Return hostname, IP, memory, disk info
+GET  /api/v2/admin/logs             Return recent log entries (JSONL log file) with filtering
 """
 import io
 import json
 import logging
 import platform
+import shlex
 import shutil
 import socket
 import threading
 import urllib.request
 import zipfile
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -141,7 +144,10 @@ def _load_server_settings() -> dict:
     try:
         return json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
     except Exception:
-        return {"default_beacon_interval": settings.default_beacon_interval}
+        return {
+            "default_beacon_interval": settings.default_beacon_interval,
+            "log_retention_hours": 24,
+        }
 
 
 def _save_server_settings(data: dict) -> None:
@@ -154,6 +160,7 @@ def _save_server_settings(data: dict) -> None:
 class ServerSettingsBody(BaseModel):
     default_beacon_interval: Optional[int] = None  # seconds, 5-3600
     dns_name: Optional[str] = None                 # public DNS name (empty string = clear)
+    log_retention_hours: Optional[int] = None      # hours to keep logs, 1-168 (default 24)
 
 
 @router.get("/settings")
@@ -173,9 +180,136 @@ def put_server_settings(body: ServerSettingsBody, _: str = Depends(require_api_k
         settings.default_beacon_interval = body.default_beacon_interval  # in-memory update
     if body.dns_name is not None:
         data["dns_name"] = body.dns_name.strip()
+    if body.log_retention_hours is not None:
+        if not (1 <= body.log_retention_hours <= 168):
+            raise HTTPException(status_code=400, detail="log_retention_hours must be between 1 and 168")
+        data["log_retention_hours"] = body.log_retention_hours
     _save_server_settings(data)
     log.info("[ADMIN] Global settings updated: %s", data)
     return data
+
+
+# ─── Log viewer + cleanup ─────────────────────────────────────────────────────
+
+def cleanup_old_logs() -> int:
+    """Remove log lines older than log_retention_hours. Returns count removed.
+
+    Reads the JSONL log file, keeps only entries within the retention window,
+    and rewrites the file. Safe to call from any thread.
+    """
+    log_file = Path(settings.log_file)
+    if not log_file.exists():
+        return 0
+    retention_hours = int(_load_server_settings().get("log_retention_hours", 24))
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=retention_hours)
+    kept: list[str] = []
+    removed = 0
+    for raw in log_file.read_text(encoding="utf-8", errors="replace").splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            entry = json.loads(raw)
+            ts_str = entry.get("ts", "")
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            if ts >= cutoff:
+                kept.append(raw)
+            else:
+                removed += 1
+        except Exception:
+            kept.append(raw)  # keep unparseable lines
+    if removed:
+        log_file.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+    return removed
+
+
+@router.get("/logs")
+def get_logs(
+    since: Optional[str] = None,   # ISO datetime, or shorthand "30m" / "1h" / "6h" / "24h"
+    until: Optional[str] = None,   # ISO datetime upper bound (optional)
+    search: Optional[str] = None,  # text to match within the msg field (case-insensitive)
+    level: Optional[str] = None,   # INFO | WARNING | ERROR
+    limit: int = 500,
+    _: str = Depends(require_api_key),
+):
+    """Return recent log entries from the JSONL server log file.
+
+    By default (no params) returns the last 30 minutes of entries, newest first.
+    """
+    log_file = Path(settings.log_file)
+    if not log_file.exists():
+        return []
+
+    now = datetime.now(timezone.utc)
+
+    # Parse 'since'
+    if since is None:
+        since_dt = now - timedelta(minutes=30)
+    elif since.endswith("m"):
+        try:
+            since_dt = now - timedelta(minutes=int(since[:-1]))
+        except ValueError:
+            since_dt = now - timedelta(minutes=30)
+    elif since.endswith("h"):
+        try:
+            since_dt = now - timedelta(hours=int(since[:-1]))
+        except ValueError:
+            since_dt = now - timedelta(minutes=30)
+    else:
+        try:
+            since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        except Exception:
+            since_dt = now - timedelta(minutes=30)
+
+    # Parse 'until'
+    until_dt: Optional[datetime] = None
+    if until:
+        try:
+            until_dt = datetime.fromisoformat(until.replace("Z", "+00:00"))
+        except Exception:
+            until_dt = None
+
+    level_filter = level.upper() if level else None
+
+    # Parse search string into tokens: quoted phrases stay intact, words are AND-ed.
+    # e.g. 'async papa'       -> ['async', 'papa'] (both must appear)
+    #      '"async papa"'     -> ['async papa']    (exact phrase must appear)
+    #      'error "my func"'  -> ['error', 'my func']
+    search_tokens: list[str] = []
+    if search:
+        try:
+            search_tokens = [t.lower() for t in shlex.split(search) if t]
+        except ValueError:
+            # Unbalanced quotes — treat the whole string as a single token
+            search_tokens = [search.strip().lower()]
+
+    entries: list[dict] = []
+    for raw in log_file.read_text(encoding="utf-8", errors="replace").splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            entry = json.loads(raw)
+            ts_str = entry.get("ts", "")
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        except Exception:
+            continue
+        if ts < since_dt:
+            continue
+        if until_dt is not None and ts > until_dt:
+            continue
+        if level_filter and entry.get("level", "").upper() != level_filter:
+            continue
+        if search_tokens:
+            # Search across msg + exception traceback (case-insensitive)
+            haystack = (entry.get("msg", "") + " " + (entry.get("exc") or "")).lower()
+            if not all(token in haystack for token in search_tokens):
+                continue
+        entries.append(entry)
+
+    # Newest first
+    entries.sort(key=lambda e: e.get("ts", ""), reverse=True)
+    return entries[:max(1, limit)]
 
 
 @router.get("/server-info")

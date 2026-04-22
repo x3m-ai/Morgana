@@ -44,6 +44,9 @@
         <li class="nav-item" data-page="users">
           <span class="nav-icon">[U]</span> Users
         </li>
+        <li class="nav-item" data-page="logs">
+          <span class="nav-icon">[L]</span> Logs
+        </li>
         <li class="nav-item" data-page="admin">
           <span class="nav-icon">[*]</span> Admin
         </li>
@@ -1002,6 +1005,60 @@
         </div>
       </div>
 
+      <!-- ─── Logs page ────────────────────────────────────────────────────── -->
+      <div id="page-logs" class="page">
+        <div class="page-header">
+          <h1>Server Logs</h1>
+          <div class="header-actions">
+            <button class="btn btn-secondary" onclick="exportLogs()" id="logsExportBtn" disabled title="Load logs first, then export">Export JSON</button>
+            <button class="btn btn-secondary" onclick="loadLogs()">Refresh</button>
+          </div>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="card" style="margin-bottom:.8rem">
+          <div class="card-body" style="padding:.7rem 1rem">
+            <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+              <input type="text" id="logsSearch" class="search-input" style="min-width:180px;max-width:280px"
+                placeholder="Search message..." />
+              <select id="logsLevel" class="search-input" style="max-width:130px">
+                <option value="">All levels</option>
+                <option value="INFO">INFO</option>
+                <option value="WARNING">WARNING</option>
+                <option value="ERROR">ERROR</option>
+              </select>
+              <label style="color:var(--text-muted);font-size:13px;white-space:nowrap">From:</label>
+              <input type="datetime-local" id="logsSince" class="search-input" style="max-width:195px" />
+              <label style="color:var(--text-muted);font-size:13px;white-space:nowrap">To:</label>
+              <input type="datetime-local" id="logsUntil" class="search-input" style="max-width:195px" />
+              <button class="btn btn-primary" onclick="applyLogsFilter()">Apply</button>
+              <button class="btn btn-secondary" onclick="loadLogs()">Last 30 min</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-body" style="padding:0">
+            <div id="logsCount" style="padding:.45rem 1rem;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.8rem"><span id="logsCountText">-</span></div>
+            <div style="overflow-x:auto">
+              <table class="data-table logs-table">
+                <thead>
+                  <tr>
+                    <th style="width:155px">Timestamp</th>
+                    <th style="width:90px">Level</th>
+                    <th style="width:190px">Source</th>
+                    <th>Message</th>
+                  </tr>
+                </thead>
+                <tbody id="logsTableBody">
+                  <tr><td colspan="4" class="empty-row">Click "Last 30 min" or set filters and click Apply.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div id="page-admin" class="page">
         <div class="page-header">
           <h1>Admin</h1>
@@ -1143,6 +1200,20 @@
               <input type="number" id="globalBeaconInput" class="search-input" style="max-width:90px;text-align:center" min="5" max="3600" value="5" />
               <button class="btn btn-primary" onclick="saveGlobalSettings()">Save</button>
               <span id="globalSettingsSaved" class="admin-hint" style="display:none">[SAVED]</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Log Retention -->
+        <div class="card" style="margin-top:1rem">
+          <div class="card-header"><h2>Log Retention</h2></div>
+          <div class="card-body">
+            <p class="admin-hint">Logs older than the configured limit are removed automatically at server startup and every hour. Default: 24 hours (max: 168 h = 7 days).</p>
+            <div style="display:flex;gap:.8rem;align-items:center;margin-top:.6rem">
+              <label style="color:var(--text-muted);font-size:13px">Keep logs for (hours):</label>
+              <input type="number" id="logRetentionInput" class="search-input" style="max-width:90px;text-align:center" min="1" max="168" value="24" />
+              <button class="btn btn-primary" onclick="saveLogRetention()">Save</button>
+              <span id="logRetentionSaved" class="admin-hint" style="display:none">[SAVED]</span>
             </div>
           </div>
         </div>

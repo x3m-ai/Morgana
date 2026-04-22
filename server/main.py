@@ -123,6 +123,31 @@ async def _stale_agent_monitor() -> None:
             log.warning("[MONITOR] Stale agent check failed: %s", exc)
 
 
+async def _log_cleanup_loop() -> None:
+    """Background task: remove log entries older than log_retention_hours. Runs hourly."""
+    # Initial cleanup on startup after a short delay
+    await asyncio.sleep(5)
+    try:
+        from routers.admin import cleanup_old_logs
+        removed = cleanup_old_logs()
+        if removed:
+            log.info("[LOGCLEAN] Startup cleanup removed %d old log lines", removed)
+    except Exception as exc:
+        log.warning("[LOGCLEAN] Startup cleanup failed: %s", exc)
+    # Then run every hour
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            from routers.admin import cleanup_old_logs
+            removed = cleanup_old_logs()
+            if removed:
+                log.info("[LOGCLEAN] Hourly cleanup removed %d old log lines", removed)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("[LOGCLEAN] Hourly cleanup failed: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("[START] Morgana Server v%s", settings.version)
@@ -160,8 +185,11 @@ async def lifespan(app: FastAPI):
     log.info("[START] Morgana Server ready on HTTPS port %d", settings.port)
     _monitor_task = asyncio.create_task(_stale_agent_monitor())
     log.info("[MONITOR] Stale agent monitor started")
+    _log_cleanup_task = asyncio.create_task(_log_cleanup_loop())
+    log.info("[LOGCLEAN] Log cleanup loop started")
     yield
     _monitor_task.cancel()
+    _log_cleanup_task.cancel()
     log.info("[STOP] Morgana Server shutting down")
 
 
