@@ -1,5 +1,5 @@
 #define MyAppName "Morgana Server"
-#define MyAppVersion "0.2.1"
+#define MyAppVersion "0.2.2"
 #define MyAppPublisher "X3M.AI Ltd"
 #define MyAppURL "https://merlino.x3m.ai"
 #define MyAppExeName "morgana-server.exe"
@@ -35,6 +35,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Files]
 Source: "..\build\dist\morgana-server.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\build\morgana-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\tools\nssm.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "..\scripts\post-install.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "assets\morgana-logo.fw.png"; DestDir: "{app}\assets"; Flags: ignoreversion

@@ -18,6 +18,10 @@ BASE_DIR = Path(__file__).parent
 _FROZEN = getattr(sys, "frozen", False)
 _DATA_DIR: Path = Path("C:/ProgramData/Morgana") if _FROZEN else BASE_DIR.parent
 
+# Directory that contains the running server EXE (frozen) or the build/ output (dev).
+# Agent binaries are placed next to the server EXE by the installer.
+_APP_DIR: Path = Path(sys.executable).parent if _FROZEN else BASE_DIR.parent / "build"
+
 # Path to persisted auto-generated master key
 _MASTER_KEY_FILE = _DATA_DIR / "data" / "master.key"
 
@@ -48,7 +52,7 @@ def _get_or_generate_master_key() -> str:
 
 
 class Settings:
-    version: str = "0.2.1"
+    version: str = "0.2.2"
 
     # Server
     host: str = os.getenv("MORGANA_HOST", "0.0.0.0")
@@ -82,8 +86,10 @@ class Settings:
     max_output_bytes: int = int(os.getenv("MORGANA_MAX_OUTPUT", str(100 * 1024)))  # 100KB
 
     # Agent binaries (served by /download/* endpoints)
-    agent_binary_win: str   = os.getenv("MORGANA_AGENT_WIN",   str(BASE_DIR.parent / "build" / "morgana-agent.exe"))
-    agent_binary_linux: str = os.getenv("MORGANA_AGENT_LINUX", str(BASE_DIR.parent / "build" / "morgana-agent"))
+    # Frozen: next to morgana-server.exe in C:\Program Files\Morgana Server\
+    # Dev:    build/morgana-agent.exe (Go output)
+    agent_binary_win: str   = os.getenv("MORGANA_AGENT_WIN",   str(_APP_DIR / "morgana-agent.exe"))
+    agent_binary_linux: str = os.getenv("MORGANA_AGENT_LINUX", str(_APP_DIR / "morgana-agent"))
 
     # Logging
     log_file: str = os.getenv("MORGANA_LOG", str(_DATA_DIR / "logs" / "server.log"))
