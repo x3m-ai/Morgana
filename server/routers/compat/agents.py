@@ -60,9 +60,9 @@ async def delete_agent(paw: str, db: Session = Depends(get_db), _: str = Depends
     agent = db.query(Agent).filter(Agent.paw == paw).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    # Remove dependent rows first (FK without CASCADE)
+    # Remove dependent jobs; preserve tests (just unlink the agent)
     db.query(Job).filter(Job.agent_id == agent.id).delete(synchronize_session=False)
-    db.query(Test).filter(Test.agent_id == agent.id).delete(synchronize_session=False)
+    db.query(Test).filter(Test.agent_id == agent.id).update({"agent_id": None}, synchronize_session=False)
     db.delete(agent)
     db.commit()
     return {"deleted": paw}
@@ -82,7 +82,7 @@ async def purge_stale_agents(
     paws = [a.paw for a in stale]
     for a in stale:
         db.query(Job).filter(Job.agent_id == a.id).delete(synchronize_session=False)
-        db.query(Test).filter(Test.agent_id == a.id).delete(synchronize_session=False)
+        db.query(Test).filter(Test.agent_id == a.id).update({"agent_id": None}, synchronize_session=False)
         db.delete(a)
     db.commit()
     return {"purged": len(paws), "paws": paws}

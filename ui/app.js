@@ -459,7 +459,151 @@ function copyDeployCmd(id) {
 
 // ─── Scripts ─────────────────────────────────────────────────────────────────
 
-// Sort state: { col: "tcode"|"name"|..., dir: 1|-1 }
+// ─── Canary Scripts (Atomic Red Team download) ───────────────────────────────
+
+function _checkCanaryBanner(scripts) {
+  const banner = document.getElementById("canary-warning-banner");
+  if (!banner) return;
+  const atomicCount = scripts.filter(s => (s.source || "").toLowerCase().includes("atomic")).length;
+  // Only toggle when not in download-progress mode
+  const progressBlock = document.getElementById("canary-progress-block");
+  if (progressBlock && progressBlock.style.display !== "none") return;
+  banner.style.display = atomicCount === 0 ? "block" : "none";
+}
+
+// Helper: set a download step state: "pending" | "active" | "done" | "error"
+function _canaryStep(id, state, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = "canary-step" + (state !== "pending" ? " " + state : "");
+  const icon = el.querySelector(".cs-icon");
+  if (icon) {
+    if (state === "active")  icon.innerHTML = '<span class="cs-spin">&#9696;</span>';
+    else if (state === "done")  icon.textContent = "[+]";
+    else if (state === "error") icon.textContent = "[!]";
+    else icon.textContent = "-";
+  }
+  if (text) el.lastChild.textContent = " " + text;
+}
+
+async function refreshCanaryScripts() {
+  const btn    = document.getElementById("refreshCanaryBtn");
+  const banner = document.getElementById("canary-warning-banner");
+  const info   = document.getElementById("canary-info-block");
+  const prog   = document.getElementById("canary-progress-block");
+  const result = document.getElementById("canary-progress-result");
+  const pbar   = document.getElementById("canary-pbar");
+
+  // Show banner in progress mode
+  if (banner) banner.style.display = "block";
+  if (info)   info.style.display   = "none";
+  if (prog)   prog.style.display   = "block";
+  if (result) result.style.display = "none";
+  if (btn)    { btn.disabled = true; btn.textContent = "Downloading..."; }
+
+  // Reset progress bar and steps
+  if (pbar) { pbar.style.transition = ""; pbar.style.width = "0%"; pbar.style.background = ""; pbar.style.animation = ""; }
+  ["cstep-connect", "cstep-download", "cstep-extract", "cstep-import"].forEach(id => _canaryStep(id, "pending"));
+
+  // Map phase -> step to highlight
+  const PHASE_STEP = {
+    connecting:  "cstep-connect",
+    downloading: "cstep-download",
+    extracting:  "cstep-extract",
+    importing:   "cstep-import",
+  };
+  let _lastPhase = "";
+
+  function _applyState(state) {
+    // Update progress bar width (real %) and label
+    if (pbar) {
+      pbar.style.transition = "width 0.4s ease";
+      pbar.style.width = state.percent + "%";
+      if (state.phase === "done")  pbar.style.background = "#4caf50";
+      else if (state.phase === "error") pbar.style.background = "#f44336";
+      else pbar.style.background = "";  // CSS default amber
+    }
+    const pct = document.getElementById("canary-pct");
+    if (pct) pct.textContent = state.percent + "%";
+
+    // Advance step indicators
+    const phases = ["connecting", "downloading", "extracting", "importing"];
+    const currentIdx = phases.indexOf(state.phase);
+    phases.forEach((ph, i) => {
+      const stepId = PHASE_STEP[ph];
+      if (!stepId) return;
+      if (state.phase === "done") {
+        _canaryStep(stepId, "done");
+      } else if (state.phase === "error" && i === currentIdx) {
+        _canaryStep(stepId, "error", state.message);
+      } else if (i < currentIdx) {
+        _canaryStep(stepId, "done");
+      } else if (i === currentIdx) {
+        _canaryStep(stepId, "active", state.message);
+      }
+    });
+    _lastPhase = state.phase;
+  }
+
+  try {
+    // Start the download (returns immediately — background thread on server)
+    await apiFetch("/api/v2/admin/atomics/download", { method: "POST", body: "{}" });
+
+    // Poll progress endpoint every 500ms until done or error
+    let finalState = null;
+    while (true) {
+      await new Promise(r => setTimeout(r, 500));
+      let state;
+      try {
+        state = await apiFetch("/api/v2/admin/atomics/download-progress");
+      } catch (_) {
+        continue; // transient network blip — keep polling
+      }
+      _applyState(state);
+      if (state.phase === "done" || state.phase === "error") {
+        finalState = state;
+        break;
+      }
+    }
+
+    if (!finalState || finalState.phase === "error") {
+      throw new Error(finalState ? finalState.error || finalState.message : "Unknown error");
+    }
+
+    // Success
+    const s = finalState.stats || {};
+    if (result) {
+      result.style.display = "block";
+      result.style.color   = "#4caf50";
+      result.innerHTML = `[+] Done &mdash; <strong>${finalState.files_extracted ?? 0}</strong> YAML files, <strong>${s.loaded ?? 0}</strong> scripts imported, <strong>${s.updated ?? 0}</strong> updated`;
+    }
+
+    // Reload script list, re-evaluate banner
+    allScripts = [];
+    await loadScripts();
+
+    await new Promise(r => setTimeout(r, 2000)); // show success briefly
+    if (prog) prog.style.display = "none";
+    if (info) info.style.display = "block";
+    if (pbar) { pbar.style.transition = ""; pbar.style.width = ""; pbar.style.background = ""; }
+
+  } catch (err) {
+    _canaryStep(PHASE_STEP[_lastPhase] || "cstep-download", "error", err.message);
+    if (pbar) { pbar.style.background = "#f44336"; }
+    if (result) {
+      result.style.display = "block";
+      result.style.color   = "#f44336";
+      result.textContent   = `[!] Error: ${err.message}`;
+    }
+    if (prog) prog.style.display = "none";
+    if (info) info.style.display = "block";
+    if (pbar) { pbar.style.transition = ""; pbar.style.width = ""; pbar.style.background = ""; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Refresh Canary Scripts"; }
+  }
+}
+
+// ─── Sort state: { col: "tcode"|"name"|..., dir: 1|-1 } ──────────────────────
 const _scriptSort   = { col: null, dir: 1 };
 const _chainSort    = { col: null, dir: 1 };
 const _campaignSort = { col: null, dir: 1 };
@@ -513,9 +657,7 @@ function sortTests(col) {
 let _currentFilteredScripts = null;
 
 async function loadScripts() {
-  if (allScripts.length) { renderScripts(allScripts); return; }
   try {
-    // Scripts endpoint - note: this needs server-side implementation
     const resp = await fetch(`${API_BASE}/api/v2/scripts`, { headers: { KEY: API_KEY } });
     if (resp.ok) {
       allScripts = await resp.json();
@@ -525,8 +667,10 @@ async function loadScripts() {
     populateTacticDropdown();
     _renderScriptStats(allScripts);
     renderScripts(allScripts);
+    _checkCanaryBanner(allScripts);
   } catch {
     renderScripts([]);
+    _checkCanaryBanner([]);
   }
 }
 
@@ -537,7 +681,7 @@ function renderScripts(scripts) {
   const selAll = document.getElementById("scriptSelectAll");
   if (selAll) selAll.checked = false;
   if (!scripts.length) {
-    tbody.innerHTML = `<tr><td colspan="9" class="empty-row">No scripts loaded. Make sure the Atomic Red Team submodule is initialized.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-row">No scripts loaded. Use the <strong>Refresh Canary Scripts</strong> button to download Atomic Red Team scripts from GitHub.</td></tr>`;
     _applySortIndicators("sth", _scriptSort, ["tcode","name","tactic","executor","platform","source"]);
     return;
   }
@@ -640,16 +784,16 @@ async function deleteSelectedScripts() {
 
 async function deleteAllScripts() {
   if (!confirm("Delete ALL scripts? This cannot be undone.")) return;
-  const ids = allScripts.map((s) => s.id);
-  let failed = 0;
-  for (const id of ids) {
-    try {
-      await apiFetch(`/api/v2/scripts/${id}`, { method: "DELETE" });
-    } catch { failed++; }
+  try {
+    const res = await apiFetch("/api/v2/scripts", { method: "DELETE" });
+    allScripts = [];
+    await loadScripts();
+    if (res && res.deleted !== undefined) {
+      // success — loadScripts will refresh the table
+    }
+  } catch (err) {
+    alert("Delete all failed: " + err.message);
   }
-  allScripts = [];
-  filterScripts();
-  if (failed) alert(`${ids.length - failed} deleted, ${failed} failed.`);
 }
 
 // Returns the next available " - Copy N" name given a base name and a list of existing names

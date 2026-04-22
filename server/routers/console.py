@@ -506,10 +506,31 @@ async def browser_connect(
                     await websocket.send_text(data)
             except (WebSocketDisconnect, RuntimeError) as exc:
                 log.info("[CONSOLE] agent_to_browser: ended (%s)", exc)
+                # Agent disconnected — notify browser
+                try:
+                    await websocket.send_text(
+                        "\r\n[CONSOLE] Agent disconnected. Session closed.\r\n"
+                    )
+                except Exception:
+                    pass
             except Exception as exc:
                 log.warning("[CONSOLE] agent_to_browser error: %s", exc)
 
-        await asyncio.gather(browser_to_agent(), agent_to_browser(), return_exceptions=True)
+        async def session_timeout() -> None:
+            """Safety net: kill session after 4 hours max."""
+            await asyncio.sleep(4 * 3600)
+            log.warning("[CONSOLE] Session TTL expired for agent %s", paw)
+
+        # When ANY task ends (agent disconnect, browser disconnect, or TTL),
+        # cancel the others so the session is cleaned up immediately.
+        tasks = [
+            asyncio.ensure_future(browser_to_agent()),
+            asyncio.ensure_future(agent_to_browser()),
+            asyncio.ensure_future(session_timeout()),
+        ]
+        _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for t in pending:
+            t.cancel()
 
     finally:
         sess.done.set()
@@ -524,7 +545,6 @@ async def browser_connect(
 @router.websocket("/agent/{paw}")
 async def agent_connect(websocket: WebSocket, paw: str):
     """Agent dials back here after receiving console_paw in a poll response."""
-    # No auth - agent C2 channel is unauthenticated (internal network only)
 
     sess = console_sessions.get(paw)
     if not sess:
@@ -537,10 +557,17 @@ async def agent_connect(websocket: WebSocket, paw: str):
     sess.agent_ready.set()
     log.info("[CONSOLE] Agent connected for %s, bridging", paw)
 
-    # Keep agent WS alive until browser disconnects
+    # Keep agent WS alive until browser disconnects or session TTL expires.
+    # Also guard against infinite hang with a 4h timeout.
     try:
-        await sess.done.wait()
+        await asyncio.wait_for(sess.done.wait(), timeout=4 * 3600)
+    except asyncio.TimeoutError:
+        log.warning("[CONSOLE] Agent session TTL expired for %s", paw)
     except Exception:
         pass
     finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
         log.info("[CONSOLE] Agent WS closed for %s", paw)

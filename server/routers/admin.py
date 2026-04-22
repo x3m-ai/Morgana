@@ -7,11 +7,15 @@ GET  /api/v2/admin/settings         Read global server settings
 PUT  /api/v2/admin/settings         Update global server settings (default_beacon_interval, dns_name, ...)
 GET  /api/v2/admin/server-info      Return hostname, IP, memory, disk info
 """
+import io
 import json
 import logging
 import platform
 import shutil
 import socket
+import threading
+import urllib.request
+import zipfile
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -25,6 +29,108 @@ router = APIRouter()
 
 # In-memory last-run stats (updated by reload endpoint)
 _last_stats: dict = {}
+
+# ─── Download background state ────────────────────────────────────────────────
+_dl_lock = threading.Lock()
+_dl_state: dict = {
+    "running": False,
+    "phase": "idle",      # idle | connecting | downloading | extracting | importing | done | error
+    "percent": 0,
+    "message": "",
+    "error": None,
+    "files_extracted": 0,
+    "stats": {},
+}
+
+def _dl_set(phase: str, percent: int, message: str = "") -> None:
+    with _dl_lock:
+        _dl_state.update({"phase": phase, "percent": percent, "message": message})
+
+def _run_download() -> None:
+    """Background thread: download + extract + import Atomic Red Team."""
+    global _last_stats
+
+    GITHUB_ZIP = "https://github.com/redcanaryco/atomic-red-team/archive/refs/heads/master.zip"
+    ZIP_PREFIX  = "atomic-red-team-master/atomics/"
+    ALLOWED_EXTS = {".yaml", ".yml", ".md"}
+
+    atomic_dir    = Path(settings.atomic_path)
+    atomic_parent = atomic_dir.parent
+
+    try:
+        # ── Phase 1: connect
+        _dl_set("connecting", 2, "Connecting to GitHub...")
+        req = urllib.request.Request(GITHUB_ZIP, headers={"User-Agent": "Morgana/1.0"})
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            content_length = int(resp.headers.get("Content-Length") or 0)
+            mb_total = content_length // (1024 * 1024) if content_length else 0
+            _dl_set("downloading", 5, f"Downloading (~{mb_total} MB)...")
+
+            # ── Phase 2: chunked download with real % (5% -> 65%)
+            CHUNK = 65536
+            chunks: list[bytes] = []
+            downloaded = 0
+            while True:
+                chunk = resp.read(CHUNK)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                downloaded += len(chunk)
+                if content_length > 0:
+                    pct = 5 + int(downloaded / content_length * 60)
+                    mb_done = downloaded // (1024 * 1024)
+                    _dl_set("downloading", min(pct, 65), f"Downloading... {mb_done} MB / {mb_total} MB")
+            zip_data = b"".join(chunks)
+
+        # ── Phase 3: extract (65% -> 85%)
+        _dl_set("extracting", 68, "Extracting YAML files...")
+        if atomic_dir.exists():
+            shutil.rmtree(str(atomic_dir), ignore_errors=True)
+        atomic_parent.mkdir(parents=True, exist_ok=True)
+
+        extracted = 0
+        with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+            members = [m for m in zf.namelist()
+                       if m.startswith(ZIP_PREFIX) and m != ZIP_PREFIX
+                       and not m.endswith("/")
+                       and Path(m).suffix.lower() in ALLOWED_EXTS]
+            total_members = len(members) or 1
+            for i, member in enumerate(members):
+                rel  = member[len("atomic-red-team-master/"):]
+                dest = atomic_parent / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(zf.read(member))
+                extracted += 1
+                if i % 50 == 0:
+                    pct = 68 + int(i / total_members * 17)
+                    _dl_set("extracting", min(pct, 85), f"Extracting... {extracted} files")
+
+        log.info("[ADMIN] Extracted %d files to %s", extracted, atomic_dir)
+
+        # ── Phase 4: import into DB (85% -> 99%)
+        _dl_set("importing", 87, "Importing into database...")
+        from core.atomic_loader import AtomicLoader
+        loader = AtomicLoader(str(atomic_dir))
+        stats  = loader.reload_all()
+        _last_stats = stats
+        log.info("[ADMIN] Import done: loaded=%d updated=%d errors=%d",
+                 stats.get("loaded", 0), stats.get("updated", 0), stats.get("errors", 0))
+
+        # ── Done
+        with _dl_lock:
+            _dl_state.update({
+                "running": False, "phase": "done", "percent": 100,
+                "message": f"{extracted} files extracted, {stats.get('loaded', 0)} scripts imported",
+                "error": None, "files_extracted": extracted, "stats": stats,
+            })
+
+    except Exception as exc:
+        log.error("[ADMIN] Atomics download failed: %s", exc)
+        with _dl_lock:
+            _dl_state.update({
+                "running": False, "phase": "error", "percent": 0,
+                "message": str(exc), "error": str(exc),
+            })
 
 # Persistent global settings file (survives restarts)
 _SETTINGS_FILE = Path(settings.db_path).parent / "server-settings.json"
@@ -189,3 +295,32 @@ def atomic_status(_: str = Depends(require_api_key)):
         "yaml_files_on_disk": yaml_count,
         "last_run_stats": _last_stats,
     }
+
+
+@router.post("/atomics/download")
+def download_atomics(_: str = Depends(require_api_key)):
+    """
+    Start a background download of Atomic Red Team YAML scripts from GitHub.
+    Returns immediately with {"status": "started"}.
+    Poll GET /atomics/download-progress for real-time percentage updates.
+    """
+    with _dl_lock:
+        if _dl_state["running"]:
+            return {"status": "already_running", "phase": _dl_state["phase"], "percent": _dl_state["percent"]}
+        _dl_state.update({
+            "running": True, "phase": "connecting", "percent": 0,
+            "message": "Starting...", "error": None,
+            "files_extracted": 0, "stats": {},
+        })
+
+    log.info("[ADMIN] Atomics download started in background thread")
+    t = threading.Thread(target=_run_download, daemon=True)
+    t.start()
+    return {"status": "started"}
+
+
+@router.get("/atomics/download-progress")
+def download_progress(_: str = Depends(require_api_key)):
+    """Return current download+import progress. Poll this after POST /atomics/download."""
+    with _dl_lock:
+        return dict(_dl_state)

@@ -235,11 +235,47 @@
               <option value="macos">macOS</option>
             </select>
             <button class="btn btn-secondary btn-sm" onclick="clearScriptFilters()">Clear</button>
+            <button class="btn btn-warning" id="refreshCanaryBtn" onclick="refreshCanaryScripts()" title="Download or refresh Atomic Red Team (Red Canary) scripts from GitHub">Refresh Canary Scripts</button>
             <button class="btn btn-primary" onclick="openNewScriptModal()">+ New Script</button>
             <button class="btn btn-danger btn-sm" onclick="deleteSelectedScripts()">Delete Selected</button>
             <button class="btn btn-primary btn-sm" onclick="executeSelectedScripts()">Execute Selected</button>
             <button class="btn btn-danger btn-sm" onclick="deleteAllScripts()">Delete All</button>
           </div>
+        </div>
+
+        <!-- Canary warning banner: shown when no Atomic Red Team scripts are loaded -->
+        <div id="canary-warning-banner" style="display:none;background:#2a1f00;border:1px solid #f59e0b;border-radius:6px;padding:1rem 1.2rem;margin-bottom:1rem">
+
+          <!-- Static info (hidden during download) -->
+          <div id="canary-info-block">
+            <div style="font-weight:600;color:#f59e0b;margin-bottom:.5rem">[!] No Atomic Red Team (Canary) scripts loaded</div>
+            <div style="color:#e0c97a;font-size:.9rem;line-height:1.7">
+              Click <strong>Refresh Canary Scripts</strong> above to download the Atomic Red Team library from GitHub.<br>
+              Only YAML files are downloaded (no binaries) to minimise Windows Defender false positives.
+            </div>
+            <div style="margin-top:.8rem;padding:.7rem .9rem;background:#1a1000;border-left:3px solid #f59e0b;border-radius:0 4px 4px 0;font-size:.88rem;color:#e0c97a;line-height:1.7">
+              <strong style="color:#f59e0b">Recommended: </strong>Add a Windows Defender exclusion to prevent Red Team scripts from being quarantined<br>
+              <span style="color:#aaa">Windows Security &gt; Virus &amp; threat protection &gt; Manage settings &gt; Add or remove exclusions</span><br>
+              <code style="background:#0d0d0d;padding:3px 8px;border-radius:3px;color:#fff;font-size:.85rem">C:\ProgramData\Morgana\</code>
+            </div>
+          </div>
+
+          <!-- Progress block (shown during download) -->
+          <div id="canary-progress-block" style="display:none">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;font-weight:600;color:#f59e0b;margin-bottom:.4rem">
+              <span>Downloading Atomic Red Team scripts...</span>
+              <span id="canary-pct" style="font-size:.85rem;font-weight:400">0%</span>
+            </div>
+            <div class="canary-progress-track"><div class="canary-progress-bar" id="canary-pbar"></div></div>
+            <div id="canary-steps" style="margin-top:.4rem">
+              <div class="canary-step" id="cstep-connect"><span class="cs-icon">-</span> Connecting to GitHub...</div>
+              <div class="canary-step" id="cstep-download"><span class="cs-icon">-</span> Downloading zip archive (~100MB)...</div>
+              <div class="canary-step" id="cstep-extract"><span class="cs-icon">-</span> Extracting YAML files only (skipping binaries)...</div>
+              <div class="canary-step" id="cstep-import"><span class="cs-icon">-</span> Importing into database...</div>
+            </div>
+            <div id="canary-progress-result" style="display:none;margin-top:.6rem;font-size:.88rem"></div>
+          </div>
+
         </div>
 
         <!-- Stats strip -->
@@ -1482,7 +1518,7 @@
       <div class="modal-body">
         <div id="be-missing-info" style="display:none;margin-bottom:14px;padding:10px 12px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);border-radius:6px;font-size:13px">
           <strong style="color:#f59e0b">Items without an assigned agent:</strong>
-          <ul id="be-missing-list" style="margin:6px 0 0 16px;padding:0;list-style:disc;font-size:12px;color:var(--text-secondary,#aaa)"></ul>
+          <ul id="be-missing-list" style="margin:6px 0 0 16px;padding:0;list-style:disc;font-size:12px;color:var(--text-secondary,#aaa);max-height:180px;overflow-y:auto"></ul>
         </div>
         <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--text-secondary,#aaa)">Agent for execution</label>
         <select id="be-agent-sel" style="width:100%;margin-bottom:10px;background:var(--bg-input,#3a3a3a);color:var(--text-primary,#fff);border:1px solid var(--border-color,#555);border-radius:4px;padding:6px 8px;font-size:13px"></select>
@@ -1497,6 +1533,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20"></script>
+  <script src="app.js?v=24"></script>
 </body>
 </html>

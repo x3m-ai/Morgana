@@ -1132,3 +1132,40 @@ body {
   color: var(--text-muted);
   white-space: nowrap;
 }
+
+/* ── Canary download progress ───────────────────────────────────── */
+.canary-progress-track {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255,255,255,.1);
+  overflow: hidden;
+  margin: .6rem 0 .4rem;
+}
+
+.canary-progress-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0%;
+  border-radius: 4px;
+  background: #f59e0b;
+  transition: width 0.4s ease, background 0.3s ease;
+}
+
+.canary-step {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  font-size: .82rem;
+  padding: .18rem 0;
+  color: #888;
+  transition: color .3s;
+}
+.canary-step.active  { color: #f59e0b; }
+.canary-step.done    { color: #4caf50; }
+.canary-step.error   { color: #f44336; }
+.canary-step .cs-icon { font-size: .9rem; min-width: 1rem; text-align: center; }
+.canary-step .cs-spin { display: inline-block; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

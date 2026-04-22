@@ -4,13 +4,22 @@ All settings loaded from environment variables with sensible defaults.
 """
 
 import os
+import sys
 import secrets
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
 
-# Path to persisted auto-generated master key (used when MORGANA_API_KEY env var is not set)
-_MASTER_KEY_FILE = BASE_DIR / "data" / "master.key"
+# When running as a PyInstaller frozen EXE, BASE_DIR resolves inside _MEIPASS (a
+# temporary extraction folder that changes every run). To keep persistent data
+# (certs, DB, logs) stable across restarts we use a well-known data directory
+# instead. The env vars always take priority, so the installer / NSSM config can
+# still override individual paths.
+_FROZEN = getattr(sys, "frozen", False)
+_DATA_DIR: Path = Path("C:/ProgramData/Morgana") if _FROZEN else BASE_DIR.parent
+
+# Path to persisted auto-generated master key
+_MASTER_KEY_FILE = _DATA_DIR / "data" / "master.key"
 
 
 def _get_or_generate_master_key() -> str:
@@ -59,14 +68,14 @@ class Settings:
 
     # TLS - always HTTPS. Override cert paths via env vars if needed.
     # Self-signed certs are auto-generated at startup if not found.
-    ssl_certfile: str = os.getenv("MORGANA_CERT", str(BASE_DIR / "certs" / "server.crt"))
-    ssl_keyfile: str = os.getenv("MORGANA_KEY", str(BASE_DIR / "certs" / "server.key"))
+    ssl_certfile: str = os.getenv("MORGANA_CERT", str(_DATA_DIR / "certs" / "server.crt"))
+    ssl_keyfile: str = os.getenv("MORGANA_KEY",  str(_DATA_DIR / "certs" / "server.key"))
 
     # Database
-    db_path: str = os.getenv("MORGANA_DB", str(BASE_DIR / "db" / "morgana.db"))
+    db_path: str = os.getenv("MORGANA_DB", str(_DATA_DIR / "db" / "morgana.db"))
 
     # Atomic Red Team
-    atomic_path: str = os.getenv("MORGANA_ATOMICS", str(BASE_DIR.parent / "atomics" / "atomics"))
+    atomic_path: str = os.getenv("MORGANA_ATOMICS", str(_DATA_DIR / "atomics" / "atomics"))
 
     # Agent defaults
     default_beacon_interval: int = int(os.getenv("MORGANA_BEACON_INTERVAL", "5"))
@@ -77,7 +86,7 @@ class Settings:
     agent_binary_linux: str = os.getenv("MORGANA_AGENT_LINUX", str(BASE_DIR.parent / "build" / "morgana-agent"))
 
     # Logging
-    log_file: str = os.getenv("MORGANA_LOG", str(BASE_DIR / "logs" / "server.log"))
+    log_file: str = os.getenv("MORGANA_LOG", str(_DATA_DIR / "logs" / "server.log"))
 
     # Security
     hmac_secret: str = os.getenv("MORGANA_HMAC_SECRET", "change-this-in-production-please")

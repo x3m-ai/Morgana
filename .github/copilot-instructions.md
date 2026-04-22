@@ -26,7 +26,42 @@ Morgana is the X3M.AI Red Team execution platform, replacing Caldera. Windows-na
 | Agent | Go 1.22 - single binary, NT Service (Windows) / systemd (Linux) |
 | Script library | Red Canary Atomic Red Team (YAML, git submodule at `atomics/`) |
 | UI | Vanilla HTML5/JS/CSS3 dark theme, no framework |
-| Build | PyInstaller (server EXE) + Go build (agent EXE) |
+| Build | PyInstaller (server EXE) + Go build (agent EXE) + Inno Setup installer |
+
+---
+
+## DEPLOY WORKFLOW — CRITICAL
+
+**Code fixes and new features do NOT require a full reinstall. Rebuild only the EXE and swap it.**
+
+### Normal workflow (code change -> test in place)
+```powershell
+cd C:\Users\ninoc\OfficeAddinApps\Morgana
+# 1. Build only the EXE
+& "server\.venv\Scripts\python.exe" "build\build-server.py"
+# 2. Stop, swap, restart (run as admin)
+Stop-Service Morgana -Force; Start-Sleep 3
+Copy-Item "build\dist\morgana-server.exe" "C:\Program Files\Morgana Server\morgana-server.exe" -Force
+Start-Service Morgana
+```
+
+### Full reinstall (ONLY when explicitly requested by the user, or to test the installer itself)
+```powershell
+powershell -File scripts\build-installer.ps1   # builds EXE + Inno Setup package
+# Produces: build\installer\Morgana-Server-Setup.exe
+Start-Process "build\installer\Morgana-Server-Setup.exe" -ArgumentList "/VERYSILENT" -Verb RunAs -Wait
+```
+
+### Persistent data (survives all restarts and reinstalls)
+All runtime data lives in `C:\ProgramData\Morgana\` — never touch it unless debugging.
+
+| Path | Content |
+|------|---------|
+| `certs\server.crt` / `server.key` | TLS cert (auto-generated on first run) |
+| `db\morgana.db` | SQLite database |
+| `logs\server.log` | Server log |
+| `data\master.key` | Persisted API key |
+| `atomics\atomics\` | Atomic Red Team YAML library |
 
 ## DOMAIN MODEL
 

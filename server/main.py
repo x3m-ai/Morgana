@@ -241,9 +241,16 @@ from routers.campaigns import router as campaigns_router
 app.include_router(campaigns_router, prefix="/api/v2/campaigns", tags=["campaigns"])
 
 # Serve web UI
-ui_path = Path(__file__).parent.parent / "ui"
+# When frozen by PyInstaller the files land in sys._MEIPASS, not next to __file__
+import sys as _sys_ui
+if getattr(_sys_ui, "frozen", False):
+    ui_path = Path(_sys_ui._MEIPASS) / "ui"
+else:
+    ui_path = Path(__file__).parent.parent / "ui"
 if ui_path.exists():
     app.mount("/ui", StaticFiles(directory=str(ui_path), html=True), name="ui")
+else:
+    log.warning("[START] UI path not found: %s -- dashboard will not be served", ui_path)
 
 
 @app.get("/health")
@@ -335,12 +342,20 @@ if __name__ == "__main__":
     _ensure_tls_certs()
 
     log.info("[START] HTTPS-only mode on port %d", settings.port)
+
+    # When running as a PyInstaller frozen EXE, uvicorn cannot import
+    # "main" as a module string — use the app object directly instead.
+    # reload=True also requires source files, so it must be disabled when frozen.
+    import sys as _sys
+    _frozen = getattr(_sys, "frozen", False)
+    _app_ref = app if _frozen else "main:app"
+
     uvicorn.run(
-        "main:app",
+        _app_ref,
         host=settings.host,
         port=settings.port,
         ssl_keyfile=settings.ssl_keyfile,
         ssl_certfile=settings.ssl_certfile,
-        reload=settings.debug,
+        reload=False if _frozen else settings.debug,
         log_level="info",
     )

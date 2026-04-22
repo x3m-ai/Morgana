@@ -142,6 +142,39 @@ def create_script(payload: dict, db: Session = Depends(get_db)):
     return {"id": s.id, "name": s.name}
 
 
+@router.delete("", status_code=200)
+def delete_all_scripts(
+    source: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key)
+):
+    """
+    Bulk delete scripts.
+    If ?source=atomic-red-team only those are deleted; omit to delete ALL.
+    Cleans up FK dependents (jobs, tests, chain steps) in one transaction.
+    """
+    from models.job import Job
+    from models.test import Test
+    from models.chain import ChainStep
+
+    q = db.query(Script)
+    if source:
+        q = q.filter(Script.source == source)
+    ids = [s.id for s in q.all()]
+    if not ids:
+        return {"deleted": 0}
+
+    db.query(Job).filter(Job.script_id.in_(ids)).delete(synchronize_session=False)
+    db.query(Test).filter(Test.script_id.in_(ids)).delete(synchronize_session=False)
+    db.query(ChainStep).filter(ChainStep.script_id.in_(ids)).delete(synchronize_session=False)
+    db.query(Script).filter(Script.id.in_(ids)).delete(synchronize_session=False)
+    db.commit()
+
+    label = source or "all"
+    log.info("[SCRIPT] Bulk deleted %d scripts (source=%s)", len(ids), label)
+    return {"deleted": len(ids)}
+
+
 @router.delete("/{script_id}", status_code=204)
 def delete_script(script_id: str, db: Session = Depends(get_db), _: str = Depends(require_api_key)):
     from models.job import Job
