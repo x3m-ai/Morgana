@@ -90,6 +90,31 @@ if (-not (Test-Path $distExe)) {
     throw "Build failed: missing $distExe"
 }
 
+# Ensure Windows agent binary exists -- it must be bundled in the installer.
+$agentExe = Join-Path $repoRoot "build\morgana-agent.exe"
+if (-not (Test-Path $agentExe)) {
+    Write-Step "morgana-agent.exe not found. Attempting Go build..."
+    $goCmd = Get-Command go -ErrorAction SilentlyContinue
+    if ($goCmd) {
+        Push-Location (Join-Path $repoRoot "agent")
+        try {
+            $env:GOOS   = "windows"
+            $env:GOARCH = "amd64"
+            & go build -o $agentExe .\cmd\agent
+            if ($LASTEXITCODE -ne 0) { throw "Go build failed with exit code $LASTEXITCODE" }
+            Write-Step "Agent compiled: $agentExe"
+        } finally {
+            Remove-Item Env:GOOS   -ErrorAction SilentlyContinue
+            Remove-Item Env:GOARCH -ErrorAction SilentlyContinue
+            Pop-Location
+        }
+    } else {
+        throw "morgana-agent.exe not found and 'go' is not in PATH. Build agent first: cd agent && go build -o ../build/morgana-agent.exe ./cmd/agent"
+    }
+}
+$agentSizeMB = [Math]::Round((Get-Item $agentExe).Length / 1MB, 1)
+Write-Step "Agent binary ready: $agentExe ($agentSizeMB MB)"
+
 if (-not (Test-Path $LogoPath)) {
     throw "Logo not found: $LogoPath"
 }

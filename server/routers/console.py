@@ -168,15 +168,25 @@ def _spawn_in_user_session(script_path: str) -> int:
     userenv  = ctypes.windll.userenv
 
     session_id = kernel32.WTSGetActiveConsoleSessionId()
+    log.info("[CONSOLE] Active console session ID: %d (0=no interactive user, >0=desktop session)", session_id)
 
     hToken = W.HANDLE()
     if not wtsapi32.WTSQueryUserToken(session_id, ctypes.byref(hToken)):
         err = kernel32.GetLastError()
-        log.warning("[CONSOLE] WTSQueryUserToken failed (err=%d), using Popen fallback", err)
+        _wts_hints = {
+            5:    "Access Denied - service account needs SeTcbPrivilege",
+            1008: "No user token for session - no interactive user logged in",
+        }
+        log.warning(
+            "[CONSOLE] WTSQueryUserToken failed (err=%d: %s) -- falling back to Popen (Session 0). "
+            "Window will open in the SERVICE session and will NOT be visible to the logged-in user.",
+            err, _wts_hints.get(err, "unknown error"),
+        )
         proc = subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script_path],
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
+        log.warning("[CONSOLE] Popen fallback: PID=%d in Session 0 -- console NOT visible to user", proc.pid)
         return proc.pid
 
     lpEnv = ctypes.c_void_p()
@@ -244,11 +254,20 @@ def _spawn_in_user_session(script_path: str) -> int:
 
     if not ok:
         err = kernel32.GetLastError()
-        log.warning("[CONSOLE] CreateProcessAsUserW failed (err=%d), using Popen fallback", err)
+        _create_hints = {
+            1314: "Required privilege not held (SeAssignPrimaryTokenPrivilege needed)",
+            5:    "Access Denied",
+        }
+        log.warning(
+            "[CONSOLE] CreateProcessAsUserW failed (err=%d: %s) -- falling back to Popen (Session 0). "
+            "Window will NOT be visible to the logged-in user.",
+            err, _create_hints.get(err, "unknown error"),
+        )
         proc = subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script_path],
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
+        log.warning("[CONSOLE] Popen fallback: PID=%d in Session 0 -- console NOT visible to user", proc.pid)
         return proc.pid
 
     log.info("[CONSOLE] Spawned PowerShell in user session %d, PID=%d", session_id, pid)
@@ -271,6 +290,23 @@ async def open_native_console(
       3. PowerShell uses Console.ReadKey($true) for raw input - bulletproof.
     """
 
+    # Log request details upfront for diagnostics
+    ag = db.query(Agent).filter(Agent.paw == paw).first()
+    hostname = (ag.hostname if ag else None) or paw
+    agent_status = ag.status if ag else "NOT_FOUND"
+    agent_last_seen = str(ag.last_seen) if (ag and ag.last_seen) else "never"
+    log.info(
+        "[CONSOLE] Open native console: paw=%s hostname=%s status=%s last_seen=%s",
+        paw, hostname, agent_status, agent_last_seen,
+    )
+    if not ag:
+        log.warning("[CONSOLE] Agent paw=%s not found in DB -- console may not connect", paw)
+    elif agent_status != "online":
+        log.warning(
+            "[CONSOLE] Agent paw=%s is '%s' (not online) -- console will wait for agent to reconnect",
+            paw, agent_status,
+        )
+
     # Reset any stale session first
     existing = console_sessions.get(paw)
     if existing:
@@ -281,12 +317,10 @@ async def open_native_console(
     # Create new session - wakes the agent's long-poll immediately
     console_sessions.create(paw)
 
-    ag = db.query(Agent).filter(Agent.paw == paw).first()
-    hostname = (ag.hostname if ag else None) or paw
-
     # Start TCP relay
     port = _free_port()
     ws_url = f"wss://localhost:{settings.port}/api/v2/console/ws/{paw}?key={settings.api_key}"
+    log.info("[CONSOLE] TCP relay starting on port %d for paw=%s", port, paw)
     await _tcp_relay(port, ws_url)
 
     if sys.platform == "win32":
@@ -410,11 +444,17 @@ async def open_native_console(
         tf.close()
         log.info("[CONSOLE] PS1 temp script written to %s", tf.name)
 
+        console_log = tempfile.gettempdir() + "\\morgana-console.log"
+        log.info("[CONSOLE] PS1 console log will be written to: %s", console_log)
         try:
             pid = _spawn_in_user_session(tf.name)
-            log.info("[CONSOLE] PowerShell window spawned, PID=%d, port=%d", pid, port)
+            log.info(
+                "[CONSOLE] PowerShell window spawned: PID=%d relay_port=%d paw=%s hostname=%s",
+                pid, port, paw, hostname,
+            )
+            log.info("[CONSOLE] To diagnose connection issues check: %s", console_log)
         except Exception as exc:
-            log.error("[CONSOLE] Failed to spawn PowerShell window: %s", exc)
+            log.error("[CONSOLE] Failed to spawn PowerShell window: %s", exc, exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to spawn console: {exc}")
 
     else:
