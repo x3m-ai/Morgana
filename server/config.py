@@ -52,7 +52,7 @@ def _get_or_generate_master_key() -> str:
 
 
 class Settings:
-    version: str = "0.2.3"
+    version: str = "0.2.4"
 
     # Server
     host: str = os.getenv("MORGANA_HOST", "0.0.0.0")
@@ -77,6 +77,9 @@ class Settings:
 
     # Database
     db_path: str = os.getenv("MORGANA_DB", str(_DATA_DIR / "db" / "morgana.db"))
+
+    # Data directory (exposed so other modules can derive subdirectories)
+    data_dir: str = os.getenv("MORGANA_DATA_DIR", str(_DATA_DIR))
 
     # Atomic Red Team
     atomic_path: str = os.getenv("MORGANA_ATOMICS", str(_DATA_DIR / "atomics" / "atomics"))

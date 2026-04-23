@@ -324,8 +324,13 @@ async def open_native_console(
     await _tcp_relay(port, ws_url)
 
     if sys.platform == "win32":
-        # PowerShell script: TCP connect + Console.ReadKey($true) for keyboard
-        log_path = tempfile.gettempdir() + "\\morgana-console.log"
+        # Write the PS1 script to the Morgana data dir (excluded from Defender in v0.2.1+).
+        # C:\Windows\Temp\ is actively scanned by Defender which terminates PowerShell
+        # processes that use TcpClient + stream reads (looks like C2 behaviour).
+        # C:\ProgramData\Morgana\temp\ is already in the exclusion list set by post-install.ps1.
+        ps1_dir = Path(settings.data_dir) / "temp"
+        ps1_dir.mkdir(parents=True, exist_ok=True)
+        log_path = str(ps1_dir / "morgana-console.log")
         ps_script = textwrap.dedent(f"""\
             $host.UI.RawUI.WindowTitle = 'Morgana - {hostname}'
             $script:logFile = '{log_path}'
@@ -435,16 +440,16 @@ async def open_native_console(
             Read-Host
         """)
 
-        # Write to temp file (deleted on next OS reboot automatically)
+        # Write to Defender-excluded temp dir (C:\ProgramData\Morgana\temp\)
         tf = tempfile.NamedTemporaryFile(
             suffix=".ps1", delete=False, mode="w", encoding="utf-8",
-            dir=tempfile.gettempdir()
+            dir=str(ps1_dir)
         )
         tf.write(ps_script)
         tf.close()
-        log.info("[CONSOLE] PS1 temp script written to %s", tf.name)
+        log.info("[CONSOLE] PS1 script written to %s (Defender-excluded path)", tf.name)
 
-        console_log = tempfile.gettempdir() + "\\morgana-console.log"
+        console_log = log_path
         log.info("[CONSOLE] PS1 console log will be written to: %s", console_log)
         try:
             pid = _spawn_in_user_session(tf.name)
