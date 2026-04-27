@@ -146,6 +146,65 @@ async def _relay_lifetime(server: asyncio.Server) -> None:
     log.debug("[CONSOLE] TCP relay expired and closed")
 
 
+def _find_user_session_id() -> int:
+    """Return the best available interactive user session ID.
+
+    WTSGetActiveConsoleSessionId() returns the PHYSICAL console session.
+    On EC2 / VMs accessed exclusively via RDP there is no physical console
+    user, so it returns 0 (the service session) -- making the PS window
+    invisible.  When that happens we fall back to WTSEnumerateSessions to
+    find the first active non-service RDP session.
+    """
+    import ctypes
+    import ctypes.wintypes as W
+
+    kernel32 = ctypes.windll.kernel32
+    wtsapi32 = ctypes.windll.wtsapi32
+
+    session_id = kernel32.WTSGetActiveConsoleSessionId()
+    log.info("[CONSOLE] Active console session ID: %d (0=no physical console user)", session_id)
+
+    if session_id > 0:
+        return session_id
+
+    # No physical console user -- try to find an active RDP/remote session.
+    class WTS_SESSION_INFOW(ctypes.Structure):
+        _fields_ = [
+            ("SessionId",       W.DWORD),
+            ("pWinStationName", ctypes.c_wchar_p),
+            ("State",           W.DWORD),
+        ]
+
+    WTS_CURRENT_SERVER_HANDLE = ctypes.c_void_p(0)
+    WTSActive = 0  # Connected and active
+
+    p_info  = ctypes.POINTER(WTS_SESSION_INFOW)()
+    count   = W.DWORD(0)
+    ok = wtsapi32.WTSEnumerateSessionsW(
+        WTS_CURRENT_SERVER_HANDLE, 0, 1,
+        ctypes.byref(p_info), ctypes.byref(count)
+    )
+    if ok:
+        for i in range(count.value):
+            s = p_info[i]
+            if s.State == WTSActive and s.SessionId != 0:
+                log.info(
+                    "[CONSOLE] Found active RDP/remote session: %d (%s) -- using it instead of console session",
+                    s.SessionId, s.pWinStationName or "?",
+                )
+                session_id = s.SessionId
+                break
+        wtsapi32.WTSFreeMemory(p_info)
+
+    if session_id == 0:
+        log.warning(
+            "[CONSOLE] No active user session found (physical or RDP). "
+            "The PowerShell window will open in Session 0 and will NOT be visible."
+        )
+
+    return session_id
+
+
 def _spawn_in_user_session(script_path: str) -> int:
     """Launch a PowerShell script in the active interactive user session.
 
@@ -167,8 +226,7 @@ def _spawn_in_user_session(script_path: str) -> int:
     advapi32 = ctypes.windll.advapi32
     userenv  = ctypes.windll.userenv
 
-    session_id = kernel32.WTSGetActiveConsoleSessionId()
-    log.info("[CONSOLE] Active console session ID: %d (0=no interactive user, >0=desktop session)", session_id)
+    session_id = _find_user_session_id()
 
     hToken = W.HANDLE()
     if not wtsapi32.WTSQueryUserToken(session_id, ctypes.byref(hToken)):
