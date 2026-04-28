@@ -198,34 +198,41 @@ cd C:\path\to\Morgana
 
 ## Uninstall / Fresh Reinstall
 
-Run all commands as **Administrator** in PowerShell.
+Run all commands **one at a time** as **Administrator** in PowerShell.
 
-### Step 1 — Stop and remove the service
+### Step 1 — Stop the service
 
 ```powershell
 Stop-Service Morgana -Force -ErrorAction SilentlyContinue
-& "C:\Program Files\Morgana Server\tools\nssm.exe" remove Morgana confirm
 ```
 
-### Step 2 — Run the Inno Setup uninstaller
+### Step 2 — Remove the service registration (using NSSM)
+
+```powershell
+Start-Process "C:\Program Files\Morgana Server\tools\nssm.exe" -ArgumentList "remove Morgana confirm" -Verb RunAs -Wait
+```
+
+### Step 3 — Run the Inno Setup uninstaller
 
 ```powershell
 Start-Process "C:\Program Files\Morgana Server\unins000.exe" -ArgumentList "/VERYSILENT" -Verb RunAs -Wait
 ```
 
-### Step 3 — Remove all data (optional — skip to keep config and DB)
+### Step 4 — Remove all data (optional — skip if you want to keep config and DB)
 
 ```powershell
 Remove-Item "C:\ProgramData\Morgana" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
-### Step 4 — Download and install the latest version
+### Step 5 — Download the latest installer
 
 ```powershell
-Invoke-WebRequest `
-    -Uri "https://github.com/x3m-ai/Camelot/raw/main/morgana/Install/Morgana-Server-Setup.exe" `
-    -OutFile "$env:TEMP\Morgana-Server-Setup.exe"
+Invoke-WebRequest -Uri "https://github.com/x3m-ai/Camelot/raw/main/morgana/Install/Morgana-Server-Setup.exe" -OutFile "$env:TEMP\Morgana-Server-Setup.exe"
+```
 
+### Step 6 — Run the installer
+
+```powershell
 Start-Process "$env:TEMP\Morgana-Server-Setup.exe" -ArgumentList "/VERYSILENT" -Verb RunAs -Wait
 ```
 
