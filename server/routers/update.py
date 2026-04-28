@@ -38,9 +38,10 @@ from core.auth import require_api_key
 log = logging.getLogger("morgana.update")
 router = APIRouter()
 
-# Canonical source of truth for latest Morgana version (Merlino CF Pages CDN)
+# Canonical source of truth for latest Morgana version
+# Served directly from the public Morgana GitHub repo (always fresh, no CDN/SPA issues)
 _VERSION_JSON_URL = (
-    "https://merlino.x3m.ai/morgana/version.json"
+    "https://raw.githubusercontent.com/x3m-ai/Morgana/main/version.json"
 )
 
 # Background update state
@@ -117,7 +118,7 @@ def check_update():
             update_available = True
     except Exception as exc:
         error = str(exc)
-        log.debug("[UPDATE] Version check failed: %s", exc)
+        log.warning("[UPDATE] Version check FAILED (cannot reach %s): %s", _VERSION_JSON_URL, exc)
 
     # Also expose live update progress so UI can show it even on check endpoint
     with _upd_lock:
