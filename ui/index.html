@@ -1316,6 +1316,53 @@
     </div>
   </div>
 
+  <!-- Remove Agent modal -->
+  <div id="removeAgentModal" class="modal hidden">
+    <div class="modal-content" style="max-width:660px;width:97%">
+      <div class="modal-header">
+        <h3>Uninstall Agent - <span id="ram-agent-label"></span></h3>
+        <button class="modal-close" onclick="closeRemoveAgentModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom:14px;color:var(--text-muted);font-size:0.85rem">
+          Run these commands on the <b>target machine</b> to stop and remove the Morgana agent service.
+          After running them, click the <b>x</b> button in the agent row to remove the record from this server.
+        </p>
+
+        <!-- Windows -->
+        <div id="ram-windows-block" style="margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-weight:600;font-size:0.88rem">[WINDOWS] - PowerShell (run as Administrator)</span>
+            <button class="btn btn-secondary" style="padding:2px 10px;font-size:0.78rem" onclick="copyRemoveCmd('ram-win-cmd')">Copy</button>
+          </div>
+          <div class="code-block" id="ram-win-cmd" style="font-size:0.76rem;white-space:pre;overflow-x:auto">Stop-Service MorganaAgent -Force
+sc.exe delete MorganaAgent
+Remove-Item "$env:ProgramData\Morgana\agent" -Recurse -Force
+Remove-Item "$env:ProgramData\Morgana\work" -Recurse -Force</div>
+        </div>
+
+        <!-- Linux -->
+        <div id="ram-linux-block" style="margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-weight:600;font-size:0.88rem">[LINUX] - bash (run as root)</span>
+            <button class="btn btn-secondary" style="padding:2px 10px;font-size:0.78rem" onclick="copyRemoveCmd('ram-lin-cmd')">Copy</button>
+          </div>
+          <div class="code-block" id="ram-lin-cmd" style="font-size:0.76rem;white-space:pre;overflow-x:auto">systemctl stop morgana-agent
+systemctl disable morgana-agent
+rm -f /etc/systemd/system/morgana-agent.service
+systemctl daemon-reload
+rm -f /usr/local/bin/morgana-agent
+rm -rf /etc/morgana /var/lib/morgana /var/log/morgana</div>
+        </div>
+
+        <div class="modal-note">
+          [INFO] These commands only remove the agent from the target machine.
+          To also remove the agent record from this server, click the <b>x</b> button in the agents table row.
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Script editor modal -->
   <div id="scriptModal" class="modal hidden">
     <div class="modal-content modal-wide">

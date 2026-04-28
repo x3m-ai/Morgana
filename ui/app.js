@@ -282,8 +282,9 @@ function _renderAgentTable(agents) {
       <td style="white-space:nowrap">
         <button class="btn btn-secondary btn-sm" onclick="openNativeConsole('${escHtml(a.paw)}')" title="Open native terminal window connected to this agent">Console</button>
         <button class="console-reset-btn" onclick="resetAndRelaunchConsole('${escHtml(a.paw)}')" title="Kill current session and open a fresh console">Reset</button>
+        <button class="btn btn-warning btn-sm" onclick="showRemoveAgentModal('${escHtml(a.paw)}','${escHtml(a.platform||'')}','${escHtml(a.alias||a.host||a.hostname||a.paw)}')" title="Show commands to uninstall this agent from the target machine" style="margin-left:4px">Uninstall</button>
       </td>
-      <td><button class="btn btn-danger btn-sm" onclick="deleteAgent('${escHtml(a.paw)}')" title="Remove agent">x</button></td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteAgent('${escHtml(a.paw)}')" title="Remove agent record from database">x</button></td>
     </tr>`;
   }).join("");
 }
@@ -424,6 +425,40 @@ async function showDeployToken() {
 
 function closeDeployModal() {
   document.getElementById("deployModal").classList.add("hidden");
+}
+
+function showRemoveAgentModal(paw, platform, label) {
+  document.getElementById("ram-agent-label").textContent = label || paw;
+  // Show both blocks by default; hide the irrelevant one when platform is known
+  const isLinux   = /linux/i.test(platform);
+  const isWindows = /windows/i.test(platform);
+  document.getElementById("ram-windows-block").style.display = isLinux   ? "none" : "";
+  document.getElementById("ram-linux-block").style.display   = isWindows ? "none" : "";
+  document.getElementById("removeAgentModal").classList.remove("hidden");
+}
+
+function closeRemoveAgentModal() {
+  document.getElementById("removeAgentModal").classList.add("hidden");
+}
+
+function copyRemoveCmd(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  navigator.clipboard.writeText(el.textContent.trim()).then(() => {
+    const btn = el.previousElementSibling.querySelector("button");
+    if (!btn) return;
+    const orig = btn.textContent;
+    btn.textContent = "Copied!";
+    btn.style.background = "#4caf50";
+    btn.style.color = "#fff";
+    btn.style.borderColor = "#4caf50";
+    setTimeout(() => {
+      btn.textContent = orig;
+      btn.style.background = "";
+      btn.style.color = "";
+      btn.style.borderColor = "";
+    }, 1500);
+  });
 }
 
 function copyDeployCmd(id) {

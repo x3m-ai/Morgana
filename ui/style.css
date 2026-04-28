@@ -393,6 +393,12 @@ body {
 }
 .btn-danger:hover { background: #c62828; }
 .btn-danger:disabled { opacity: .55; cursor: not-allowed; }
+.btn-warning {
+  background: #e65100;
+  color: #fff;
+  border: none;
+}
+.btn-warning:hover { background: #bf360c; }
 
 /* Admin page */
 .admin-section { margin-top: 1.4rem; }
