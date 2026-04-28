@@ -143,3 +143,37 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Step "Installer build completed"
 Write-Host "[SUCCESS] Output folder: $repoRoot\build\installer" -ForegroundColor Green
+
+# ─── Publish to Merlino CDN (Cloudflare Pages) ────────────────────────────────
+# Merlino docs/ is served at https://merlino.x3m.ai — no size limits, fast CDN.
+# This is the primary distribution point for Morgana binaries and version.json.
+$merlinoCdn = "C:\Users\ninoc\OfficeAddinApps\Merlino\docs\morgana"
+if (Test-Path $merlinoCdn) {
+    Write-Step "Publishing to Merlino CDN: $merlinoCdn"
+
+    $installerOut = Join-Path $repoRoot "build\installer\Morgana-Server-Setup.exe"
+    Copy-Item $installerOut (Join-Path $merlinoCdn "Morgana-Server-Setup.exe") -Force
+    Copy-Item $distExe      (Join-Path $merlinoCdn "morgana-server.exe")       -Force
+
+    # Read version from config.py
+    $configPy = Get-Content (Join-Path $repoRoot "server\config.py") -Raw
+    if ($configPy -match 'version\s*=\s*"([^"]+)"') {
+        $ver = $Matches[1]
+    } else {
+        $ver = "0.0.0"
+    }
+
+    $versionJson = @{
+        version       = $ver
+        download_url  = "https://merlino.x3m.ai/morgana/morgana-server.exe"
+        release_notes = "See https://github.com/x3m-ai/Morgana/releases"
+    } | ConvertTo-Json -Compress
+    Set-Content (Join-Path $merlinoCdn "version.json") $versionJson -Encoding UTF8
+
+    Write-Host "[SUCCESS] Merlino CDN updated: v$ver" -ForegroundColor Green
+    Write-Host "  installer : https://merlino.x3m.ai/morgana/Morgana-Server-Setup.exe" -ForegroundColor DarkGray
+    Write-Host "  server exe: https://merlino.x3m.ai/morgana/morgana-server.exe" -ForegroundColor DarkGray
+    Write-Host "  version   : https://merlino.x3m.ai/morgana/version.json" -ForegroundColor DarkGray
+} else {
+    Write-Warning "[WARN] Merlino CDN folder not found ($merlinoCdn) — skipping CDN publish."
+}

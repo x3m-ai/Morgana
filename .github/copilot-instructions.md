@@ -125,10 +125,26 @@ When a new version is ready (user must explicitly ask for commit/push):
 1. Bump `server/config.py` → `version = "X.Y.Z"`
 2. Bump `installer/MorganaServerSetup.iss` → `#define MyAppVersion "X.Y.Z"`
 3. Run `powershell -File scripts\build-installer.ps1`
+   - Builds `build/dist/morgana-server.exe` (PyInstaller)
+   - Builds `build/installer/Morgana-Server-Setup.exe` (Inno Setup)
+   - **Automatically copies to Merlino CDN**: `Merlino/docs/morgana/` (installer + raw EXE + version.json)
 4. git commit + push on Morgana
-5. Copy installer to `Camelot/morgana/Install/Morgana-Server-Setup.exe`
-6. Update `Camelot/morgana/Install/README.md` version header
+5. git commit + push on Merlino (CDN files land on CF Pages at `https://merlino.x3m.ai/morgana/`)
+6. Also copy installer to `Camelot/morgana/Install/` and update `Camelot/morgana/Install/README.md`
 7. git commit + push on Camelot
+
+### Merlino CDN — primary distribution point
+
+Morgana binaries are served from `https://merlino.x3m.ai/morgana/` (Cloudflare Pages, no size limits):
+
+| File | URL |
+|------|-----|
+| Installer | `https://merlino.x3m.ai/morgana/Morgana-Server-Setup.exe` |
+| Raw server EXE (auto-update swap) | `https://merlino.x3m.ai/morgana/morgana-server.exe` |
+| Version manifest | `https://merlino.x3m.ai/morgana/version.json` |
+
+The in-app auto-update system (`server/routers/update.py`) fetches `version.json` from this URL.
+If a newer version is detected, the update banner appears in the Morgana UI.
 
 ---
 

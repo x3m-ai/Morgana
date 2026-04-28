@@ -6,8 +6,10 @@ POST /api/v2/update/apply      Download new EXE and restart the service (require
 GET  /api/v2/update/status     Poll the background update progress (no auth required)
 
 Architecture:
-  - Latest version info is fetched from Camelot (GitHub raw):
-    https://raw.githubusercontent.com/x3m-ai/Camelot/main/morgana/Install/version.json
+  - Latest version info is fetched from the Merlino Cloudflare Pages CDN:
+    https://merlino.x3m.ai/morgana/version.json
+  - The EXE download URL inside version.json points to:
+    https://merlino.x3m.ai/morgana/morgana-server.exe
   - apply: downloads the new EXE to a temp file, then launches a detached
     PowerShell script that: stops the Morgana service, swaps the EXE, restarts.
   - The server responds BEFORE the service stops so the UI receives the 202.
@@ -36,9 +38,9 @@ from core.auth import require_api_key
 log = logging.getLogger("morgana.update")
 router = APIRouter()
 
-# Canonical source of truth for latest Morgana version (public Camelot repo)
+# Canonical source of truth for latest Morgana version (Merlino CF Pages CDN)
 _VERSION_JSON_URL = (
-    "https://raw.githubusercontent.com/x3m-ai/Camelot/main/morgana/Install/version.json"
+    "https://merlino.x3m.ai/morgana/version.json"
 )
 
 # Background update state
