@@ -283,6 +283,36 @@ After installation the server starts automatically as an NT Service and the UI i
 
 ---
 
+## Troubleshooting
+
+### `Remove-Item` fails with "process cannot access the file" during uninstall
+
+**Cause:** One or more processes still have a lock on files in `C:\Program Files\Morgana Server`. Common culprits:
+
+- `unins000.exe` — the Inno Setup uninstaller was launched earlier (even with `/SILENT`) and is still running as a background process with a GUI waiting for input that cannot be displayed on SSM
+- `morgana-agent.exe` — the agent binary was running independently
+- NSSM itself holding a handle on the service EXE
+
+**Fix — kill all processes from that folder, then delete:**
+
+```powershell
+Get-Process | Where-Object { $_.Path -like "*Morgana Server*" } | Stop-Process -Force
+```
+
+```powershell
+Remove-Item "C:\Program Files\Morgana Server" -Recurse -Force
+```
+
+**If that still fails**, reboot the machine. After reboot no process will hold a lock:
+
+```powershell
+Restart-Computer -Force
+```
+
+Then reconnect via SSM and continue from the `Remove-Item` step.
+
+---
+
 ## Tech Stack
 
 | Component | Technology |
