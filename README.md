@@ -215,7 +215,7 @@ Start-Process "C:\Program Files\Morgana Server\tools\nssm.exe" -ArgumentList "re
 ### Step 3 — Run the Inno Setup uninstaller
 
 ```powershell
-Start-Process "C:\Program Files\Morgana Server\unins000.exe" -ArgumentList "/VERYSILENT" -Verb RunAs -Wait
+Start-Process "C:\Program Files\Morgana Server\unins000.exe" -Verb RunAs -Wait
 ```
 
 ### Step 4 — Remove all data (optional — skip if you want to keep config and DB)
@@ -233,7 +233,7 @@ Invoke-WebRequest -Uri "https://github.com/x3m-ai/Camelot/raw/main/morgana/Insta
 ### Step 6 — Run the installer
 
 ```powershell
-Start-Process "$env:TEMP\Morgana-Server-Setup.exe" -ArgumentList "/VERYSILENT" -Verb RunAs -Wait
+Start-Process "$env:TEMP\Morgana-Server-Setup.exe" -Verb RunAs -Wait
 ```
 
 After installation the server starts automatically as an NT Service and the UI is available at `https://localhost:8888/ui/`.
