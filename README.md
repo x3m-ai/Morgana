@@ -198,55 +198,84 @@ cd C:\path\to\Morgana
 
 ## Uninstall / Fresh Reinstall
 
+> **AWS SSM / headless sessions:** The Inno Setup uninstaller requires a desktop session and will hang on SSM even with `/SILENT`. Use the **SSM / Headless** steps below instead.
+
+---
+
+### On a normal desktop session (RDP)
+
 Run all commands **one at a time** as **Administrator** in PowerShell.
 
-> **AWS SSM / headless sessions:** GUI windows cannot be displayed. Use the `/SILENT` flag on Step 3 and Step 6 (see notes in each step).
-
-### Step 1 — Stop the service
-
+**Step 1 — Stop the service**
 ```powershell
 Stop-Service Morgana -Force
 ```
 
-### Step 2 — Remove the service registration (using NSSM)
-
+**Step 2 — Remove the service registration**
 ```powershell
 Start-Process "C:\Program Files\Morgana Server\tools\nssm.exe" -ArgumentList "remove Morgana confirm" -Verb RunAs -Wait
 ```
 
-### Step 3 — Run the Inno Setup uninstaller
-
+**Step 3 — Run the Inno Setup uninstaller**
 ```powershell
 Start-Process "C:\Program Files\Morgana Server\unins000.exe" -Verb RunAs -Wait
 ```
 
-> **On AWS SSM or any headless session** (no desktop): add `/SILENT` to avoid the GUI hanging:
-> ```powershell
-> Start-Process "C:\Program Files\Morgana Server\unins000.exe" -ArgumentList "/SILENT" -Wait
-> ```
-
-### Step 4 — Remove all data (optional — skip if you want to keep config and DB)
-
+**Step 4 — Remove all data (optional)**
 ```powershell
-Remove-Item "C:\ProgramData\Morgana" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item "C:\ProgramData\Morgana" -Recurse -Force
 ```
 
-### Step 5 — Download the latest installer
-
+**Step 5 — Download the latest installer**
 ```powershell
 Invoke-WebRequest -Uri "https://github.com/x3m-ai/Camelot/raw/main/morgana/Install/Morgana-Server-Setup.exe" -OutFile "$env:TEMP\Morgana-Server-Setup.exe"
 ```
 
-### Step 6 — Run the installer
-
+**Step 6 — Run the installer**
 ```powershell
 Start-Process "$env:TEMP\Morgana-Server-Setup.exe" -Verb RunAs -Wait
 ```
 
-> **On AWS SSM or any headless session** (no desktop): add `/SILENT` to avoid the GUI hanging:
-> ```powershell
-> Start-Process "$env:TEMP\Morgana-Server-Setup.exe" -ArgumentList "/SILENT" -Wait
-> ```
+---
+
+### On AWS SSM or any headless session (no desktop)
+
+Run all commands **one at a time** as **Administrator**. No GUI, no hanging.
+
+**Step 1 — Stop the service**
+```powershell
+Stop-Service Morgana -Force
+```
+
+**Step 2 — Delete the service**
+```powershell
+sc.exe delete Morgana
+```
+
+**Step 3 — Delete the install folder**
+```powershell
+Remove-Item "C:\Program Files\Morgana Server" -Recurse -Force
+```
+
+**Step 4 — Delete all data (optional)**
+```powershell
+Remove-Item "C:\ProgramData\Morgana" -Recurse -Force
+```
+
+**Step 5 — Download the latest installer**
+```powershell
+Invoke-WebRequest -Uri "https://github.com/x3m-ai/Camelot/raw/main/morgana/Install/Morgana-Server-Setup.exe" -OutFile "$env:TEMP\Morgana-Server-Setup.exe"
+```
+
+**Step 6 — Run the installer silently**
+```powershell
+Start-Process "$env:TEMP\Morgana-Server-Setup.exe" -ArgumentList "/VERYSILENT" -Wait
+```
+
+**Step 7 — Verify the service is running**
+```powershell
+Get-Service Morgana
+```
 
 After installation the server starts automatically as an NT Service and the UI is available at `https://localhost:8888/ui/`.
 
