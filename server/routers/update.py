@@ -82,7 +82,7 @@ def _fetch_version_json() -> dict:
         headers={"User-Agent": "Morgana-AutoUpdate/1.0"},
     )
     with urllib.request.urlopen(req, context=_make_ssl_ctx(), timeout=15) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+        return json.loads(resp.read().decode("utf-8-sig"))
 
 
 def _version_tuple(v: str) -> tuple:
