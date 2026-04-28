@@ -127,19 +127,30 @@ When a new version is ready (user must explicitly ask for commit/push):
 3. Run `powershell -File scripts\build-installer.ps1`
    - Builds `build/dist/morgana-server.exe` (PyInstaller)
    - Builds `build/installer/Morgana-Server-Setup.exe` (Inno Setup)
-   - **Automatically copies to Merlino CDN**: `Merlino/docs/morgana/` (installer + raw EXE + version.json)
+   - **Automatically copies `morgana-server.exe` + `version.json` to Merlino CDN** (`Merlino/docs/morgana/`)
+   - **Automatically creates GitHub Release** and uploads the installer via `gh release create`
 4. git commit + push on Morgana
 5. git commit + push on Merlino (CDN files land on CF Pages at `https://merlino.x3m.ai/morgana/`)
 6. Also copy installer to `Camelot/morgana/Install/` and update `Camelot/morgana/Install/README.md`
 7. git commit + push on Camelot
 
-### Merlino CDN — primary distribution point
+### Distribution architecture
 
-Morgana binaries are served from `https://merlino.x3m.ai/morgana/` (Cloudflare Pages, no size limits):
+| Asset | Where | Why |
+|-------|-------|-----|
+| `Morgana-Server-Setup.exe` (installer, ~28 MB) | **GitHub Releases** | CF Pages has 25 MB file limit |
+| `morgana-server.exe` (raw EXE, ~22 MB) | **Merlino CDN** (CF Pages) | Used by in-app auto-update swap, under 25 MB |
+| `version.json` (manifest) | **Merlino CDN** (CF Pages) | Polled by auto-update system on every UI load |
+
+Installer download URL pattern: `https://github.com/x3m-ai/Morgana/releases/download/vX.Y.Z/Morgana-Server-Setup.exe`  
+Latest release: `https://github.com/x3m-ai/Morgana/releases/latest`
+
+### Merlino CDN — auto-update only
+
+Serves auto-update assets from `https://merlino.x3m.ai/morgana/` (Cloudflare Pages):
 
 | File | URL |
 |------|-----|
-| Installer | `https://merlino.x3m.ai/morgana/Morgana-Server-Setup.exe` |
 | Raw server EXE (auto-update swap) | `https://merlino.x3m.ai/morgana/morgana-server.exe` |
 | Version manifest | `https://merlino.x3m.ai/morgana/version.json` |
 

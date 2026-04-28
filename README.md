@@ -84,7 +84,7 @@ Atomic Red Team scripts + custom scripts
 
 ### Option A — Windows Installer (recommended)
 
-Download the latest `Morgana-Server-Setup.exe` from the [Merlino CDN](https://merlino.x3m.ai/morgana/Morgana-Server-Setup.exe) and run it as Administrator.
+Download the latest `Morgana-Server-Setup.exe` from [GitHub Releases](https://github.com/x3m-ai/Morgana/releases/latest) and run it as Administrator.
 
 The installer:
 - Installs the Morgana server as a **Windows NT Service** (auto-starts at boot)
@@ -292,7 +292,7 @@ Remove-Item "C:\ProgramData\Morgana" -Recurse -Force
 
 **Step 5 — Download the latest installer**
 ```powershell
-Invoke-WebRequest -Uri "https://merlino.x3m.ai/morgana/Morgana-Server-Setup.exe" -OutFile "$env:TEMP\Morgana-Server-Setup.exe"
+Invoke-WebRequest -Uri "https://github.com/x3m-ai/Morgana/releases/download/v0.2.6/Morgana-Server-Setup.exe" -OutFile "$env:TEMP\Morgana-Server-Setup.exe"
 ```
 
 **Step 6 — Run the installer**
@@ -328,7 +328,7 @@ Remove-Item "C:\ProgramData\Morgana" -Recurse -Force
 
 **Step 5 — Download the latest installer**
 ```powershell
-Invoke-WebRequest -Uri "https://merlino.x3m.ai/morgana/Morgana-Server-Setup.exe" -OutFile "$env:TEMP\Morgana-Server-Setup.exe"
+Invoke-WebRequest -Uri "https://github.com/x3m-ai/Morgana/releases/download/v0.2.6/Morgana-Server-Setup.exe" -OutFile "$env:TEMP\Morgana-Server-Setup.exe"
 ```
 
 **Step 6 — Run the installer silently and capture the log**

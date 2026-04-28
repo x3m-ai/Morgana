@@ -145,15 +145,15 @@ Write-Step "Installer build completed"
 Write-Host "[SUCCESS] Output folder: $repoRoot\build\installer" -ForegroundColor Green
 
 # ─── Publish to Merlino CDN (Cloudflare Pages) ────────────────────────────────
-# Merlino docs/ is served at https://merlino.x3m.ai — no size limits, fast CDN.
-# This is the primary distribution point for Morgana binaries and version.json.
+# CF Pages serves the auto-update EXE and version.json (both under 25 MB limit).
+# The installer (28+ MB) is distributed via GitHub Releases instead.
 $merlinoCdn = "C:\Users\ninoc\OfficeAddinApps\Merlino\docs\morgana"
 if (Test-Path $merlinoCdn) {
     Write-Step "Publishing to Merlino CDN: $merlinoCdn"
 
-    $installerOut = Join-Path $repoRoot "build\installer\Morgana-Server-Setup.exe"
-    Copy-Item $installerOut (Join-Path $merlinoCdn "Morgana-Server-Setup.exe") -Force
-    Copy-Item $distExe      (Join-Path $merlinoCdn "morgana-server.exe")       -Force
+    # Only copy the raw server EXE (for in-app auto-update swap) — NOT the installer.
+    # The installer exceeds the 25 MB CF Pages file size limit.
+    Copy-Item $distExe (Join-Path $merlinoCdn "morgana-server.exe") -Force
 
     # Read version from config.py
     $configPy = Get-Content (Join-Path $repoRoot "server\config.py") -Raw
@@ -171,9 +171,37 @@ if (Test-Path $merlinoCdn) {
     Set-Content (Join-Path $merlinoCdn "version.json") $versionJson -Encoding UTF8
 
     Write-Host "[SUCCESS] Merlino CDN updated: v$ver" -ForegroundColor Green
-    Write-Host "  installer : https://merlino.x3m.ai/morgana/Morgana-Server-Setup.exe" -ForegroundColor DarkGray
     Write-Host "  server exe: https://merlino.x3m.ai/morgana/morgana-server.exe" -ForegroundColor DarkGray
     Write-Host "  version   : https://merlino.x3m.ai/morgana/version.json" -ForegroundColor DarkGray
 } else {
     Write-Warning "[WARN] Merlino CDN folder not found ($merlinoCdn) - skipping CDN publish."
 }
+
+# ─── Create GitHub Release ─────────────────────────────────────────────────────
+# The installer (28+ MB) is uploaded as a GitHub Release asset.
+# Requires: gh CLI authenticated (gh auth login).
+$ghExe = Get-Command gh -ErrorAction SilentlyContinue
+if ($ghExe) {
+    if (-not $ver) {
+        $configPy = Get-Content (Join-Path $repoRoot "server\config.py") -Raw
+        if ($configPy -match 'version\s*(?::\s*str\s*)?\s*=\s*"([^"]+)"') { $ver = $Matches[1] } else { $ver = "0.0.0" }
+    }
+    $tag = "v$ver"
+    $installerOut = Join-Path $repoRoot "build\installer\Morgana-Server-Setup.exe"
+    $releaseExists = gh release view $tag --repo x3m-ai/Morgana 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Step "Uploading installer to existing GitHub Release $tag"
+        gh release upload $tag $installerOut --repo x3m-ai/Morgana --clobber
+    } else {
+        Write-Step "Creating GitHub Release $tag and uploading installer"
+        gh release create $tag $installerOut --repo x3m-ai/Morgana --title "Morgana $tag" --notes "See CHANGELOG. Auto-update EXE: https://merlino.x3m.ai/morgana/morgana-server.exe"
+    }
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "[SUCCESS] GitHub Release $tag: https://github.com/x3m-ai/Morgana/releases/tag/$tag" -ForegroundColor Green
+    } else {
+        Write-Warning "[WARN] GitHub Release upload failed - upload manually from build\installer\"
+    }
+} else {
+    Write-Warning "[WARN] gh CLI not found - skipping GitHub Release. Upload build\installer\Morgana-Server-Setup.exe manually."
+}
+
