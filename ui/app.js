@@ -3988,7 +3988,8 @@ async function checkForUpdate() {
   if (_updateDismissed) return;
   try {
     const data = await apiFetch("/api/v2/update/check");
-    if (data && data.update_available) {
+    if (!data) return;
+    if (data.update_available) {
       const banner = document.getElementById("update-banner");
       const txt    = document.getElementById("update-banner-text");
       if (!banner || !txt) return;
@@ -3997,6 +3998,9 @@ async function checkForUpdate() {
         `New version available: <strong style="color:#90cdf4">v${escHtml(data.latest_version)}</strong>` +
         ` (current: v${escHtml(data.current_version)})${notes}`;
       banner.style.display = "flex";
+    } else if (data.check_error) {
+      console.warn("[MORGANA] Auto-update check failed:", data.check_error,
+        "- check outbound HTTPS to merlino.x3m.ai from the server machine");
     }
   } catch (_e) {
     // Network error or server offline — silently ignore
