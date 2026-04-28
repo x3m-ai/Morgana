@@ -450,6 +450,9 @@ body {
   border-radius: var(--border-radius);
   width: 560px;
   max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .modal-header {
@@ -471,7 +474,7 @@ body {
 }
 .modal-close:hover { color: var(--text-primary); }
 
-.modal-body { padding: 16px; }
+.modal-body { padding: 16px; overflow-y: auto; flex: 1; }
 .modal-body p { margin-bottom: 12px; color: var(--text-secondary); font-size: 13px; }
 .modal-note { margin-top: 12px; font-size: 11px; color: var(--text-muted); font-style: italic; }
 

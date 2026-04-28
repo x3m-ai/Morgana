@@ -1,5 +1,5 @@
 #define MyAppName "Morgana Server"
-#define MyAppVersion "0.2.7"
+#define MyAppVersion "0.2.8"
 #define MyAppPublisher "X3M.AI Ltd"
 #define MyAppURL "https://merlino.x3m.ai"
 #define MyAppExeName "morgana-server.exe"
