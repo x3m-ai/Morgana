@@ -165,14 +165,18 @@ if (Test-Path $merlinoCdn) {
 
     $versionJson = @{
         version       = $ver
-        download_url  = "https://merlino.x3m.ai/morgana/morgana-server.exe"
+        download_url  = "https://github.com/x3m-ai/Morgana/releases/latest/download/Morgana-Server-Setup.exe"
         release_notes = "See https://github.com/x3m-ai/Morgana/releases"
     } | ConvertTo-Json -Compress
     Set-Content (Join-Path $merlinoCdn "version.json") $versionJson -Encoding UTF8
 
+    # Also update version.json in the Morgana repo root (primary source for auto-update check)
+    Set-Content (Join-Path $repoRoot "version.json") $versionJson -Encoding UTF8
+    Write-Host "[SUCCESS] version.json updated in Morgana repo root (raw.githubusercontent.com)" -ForegroundColor Green
+
     Write-Host "[SUCCESS] Merlino CDN updated: v$ver" -ForegroundColor Green
     Write-Host "  server exe: https://merlino.x3m.ai/morgana/morgana-server.exe" -ForegroundColor DarkGray
-    Write-Host "  version   : https://merlino.x3m.ai/morgana/version.json" -ForegroundColor DarkGray
+    Write-Host "  version   : https://raw.githubusercontent.com/x3m-ai/Morgana/master/version.json" -ForegroundColor DarkGray
 } else {
     Write-Warning "[WARN] Merlino CDN folder not found ($merlinoCdn) - skipping CDN publish."
 }
