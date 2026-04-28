@@ -267,9 +267,10 @@ Remove-Item "C:\ProgramData\Morgana" -Recurse -Force
 Invoke-WebRequest -Uri "https://github.com/x3m-ai/Camelot/raw/main/morgana/Install/Morgana-Server-Setup.exe" -OutFile "$env:TEMP\Morgana-Server-Setup.exe"
 ```
 
-**Step 6 — Run the installer silently**
+**Step 6 — Run the installer silently and capture the log**
 ```powershell
-Start-Process "$env:TEMP\Morgana-Server-Setup.exe" -ArgumentList "/VERYSILENT" -Wait
+Start-Process "$env:TEMP\Morgana-Server-Setup.exe" -ArgumentList "/VERYSILENT /LOG=$env:TEMP\morgana-install.log" -Wait
+Get-Content "$env:TEMP\morgana-install.log"
 ```
 
 **Step 7 — Verify the service is running**
