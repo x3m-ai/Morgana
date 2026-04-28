@@ -44,9 +44,12 @@ func (h *Handler) Open(consolePaw string) {
 	serverURL = strings.Replace(serverURL, "http://", "ws://", 1)
 	wsURL := serverURL + "/api/v2/console/agent/" + consolePaw
 
-	h.log.Info("[CONSOLE] Connecting to server", map[string]any{
-		"url": wsURL,
-		"paw": consolePaw,
+	h.log.Info("[CONSOLE] === CONSOLE SESSION STARTING ===", map[string]any{
+		"paw":        consolePaw,
+		"server_url": h.cfg.ServerURL,
+		"ws_url":     wsURL,
+		"os":         runtime.GOOS,
+		"arch":       runtime.GOARCH,
 	})
 
 	headers := http.Header{}
@@ -60,17 +63,30 @@ func (h *Handler) Open(consolePaw string) {
 		},
 	}
 
-	conn, _, err := dialer.Dial(wsURL, headers)
+	h.log.Info("[CONSOLE] Dialing WebSocket ...", map[string]any{"ws_url": wsURL})
+	conn, resp, err := dialer.Dial(wsURL, headers)
 	if err != nil {
-		h.log.Error("[CONSOLE] WebSocket dial failed", map[string]any{
-			"url":   wsURL,
-			"error": err.Error(),
+		statusCode := 0
+		if resp != nil {
+			statusCode = resp.StatusCode
+		}
+		h.log.Error("[CONSOLE] WebSocket dial FAILED", map[string]any{
+			"url":         wsURL,
+			"error":       err.Error(),
+			"http_status": statusCode,
 		})
 		return
 	}
+	h.log.Info("[CONSOLE] WebSocket connected OK", map[string]any{"ws_url": wsURL})
 	defer conn.Close()
 
 	shell, args, workDir := shellConfig()
+
+	h.log.Info("[CONSOLE] Shell config", map[string]any{
+		"shell":   shell,
+		"args":    args,
+		"workDir": workDir,
+	})
 
 	// Create working directory if it does not exist
 	if err := os.MkdirAll(workDir, 0o755); err != nil {

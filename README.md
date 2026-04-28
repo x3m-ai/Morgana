@@ -292,7 +292,7 @@ Remove-Item "C:\ProgramData\Morgana" -Recurse -Force
 
 **Step 5 — Download the latest installer**
 ```powershell
-Invoke-WebRequest -Uri "https://github.com/x3m-ai/Morgana/releases/download/v0.2.6/Morgana-Server-Setup.exe" -OutFile "$env:TEMP\Morgana-Server-Setup.exe"
+Invoke-WebRequest -Uri "https://github.com/x3m-ai/Morgana/releases/download/v0.2.7/Morgana-Server-Setup.exe" -OutFile "$env:TEMP\Morgana-Server-Setup.exe"
 ```
 
 **Step 6 — Run the installer**
@@ -328,7 +328,7 @@ Remove-Item "C:\ProgramData\Morgana" -Recurse -Force
 
 **Step 5 — Download the latest installer**
 ```powershell
-Invoke-WebRequest -Uri "https://github.com/x3m-ai/Morgana/releases/download/v0.2.6/Morgana-Server-Setup.exe" -OutFile "$env:TEMP\Morgana-Server-Setup.exe"
+Invoke-WebRequest -Uri "https://github.com/x3m-ai/Morgana/releases/download/v0.2.7/Morgana-Server-Setup.exe" -OutFile "$env:TEMP\Morgana-Server-Setup.exe"
 ```
 
 **Step 6 — Run the installer silently and capture the log**

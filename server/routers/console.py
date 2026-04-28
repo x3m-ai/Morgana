@@ -157,23 +157,30 @@ def _find_user_session_id() -> int:
     """
     import ctypes
     import ctypes.wintypes as W
+    import platform
+
+    log.info(
+        "[CONSOLE] Platform: %s | Python: %s | frozen=%s",
+        platform.version(), sys.version.split()[0], getattr(sys, "frozen", False),
+    )
 
     kernel32 = ctypes.windll.kernel32
     wtsapi32 = ctypes.windll.wtsapi32
 
     session_id = kernel32.WTSGetActiveConsoleSessionId()
-    log.info("[CONSOLE] Active console session ID: %d (0=no physical console user)", session_id)
+    log.info("[CONSOLE] WTSGetActiveConsoleSessionId() = %d (0 means no physical console, typical on EC2/headless VMs)", session_id)
 
-    if session_id > 0:
-        return session_id
-
-    # No physical console user -- try to find an active RDP/remote session.
+    # Always enumerate ALL sessions so the log shows the full picture.
     class WTS_SESSION_INFOW(ctypes.Structure):
         _fields_ = [
             ("SessionId",       W.DWORD),
             ("pWinStationName", ctypes.c_wchar_p),
             ("State",           W.DWORD),
         ]
+
+    _WTS_STATE = {0: "Active", 1: "Connected", 2: "ConnectQuery", 3: "Shadow",
+                  4: "Disconnected", 5: "Idle", 6: "Listen", 7: "Reset",
+                  8: "Down", 9: "Init"}
 
     WTS_CURRENT_SERVER_HANDLE = ctypes.c_void_p(0)
     WTSActive = 0  # Connected and active
@@ -184,22 +191,32 @@ def _find_user_session_id() -> int:
         WTS_CURRENT_SERVER_HANDLE, 0, 1,
         ctypes.byref(p_info), ctypes.byref(count)
     )
-    if ok:
+    if not ok:
+        err = kernel32.GetLastError()
+        log.warning("[CONSOLE] WTSEnumerateSessionsW failed (err=%d) -- cannot list sessions", err)
+    else:
+        log.info("[CONSOLE] WTSEnumerateSessions: found %d session(s):", count.value)
+        picked = False
         for i in range(count.value):
             s = p_info[i]
-            if s.State == WTSActive and s.SessionId != 0:
-                log.info(
-                    "[CONSOLE] Found active RDP/remote session: %d (%s) -- using it instead of console session",
-                    s.SessionId, s.pWinStationName or "?",
-                )
+            state_name = _WTS_STATE.get(s.State, f"State={s.State}")
+            station = s.pWinStationName or "?"
+            is_target = (s.State == WTSActive and s.SessionId != 0 and not picked)
+            marker = " <-- SELECTING THIS" if is_target else ""
+            log.info(
+                "[CONSOLE]   Session %d | Station: %-20s | State: %s%s",
+                s.SessionId, station, state_name, marker,
+            )
+            if is_target:
                 session_id = s.SessionId
-                break
+                picked = True
         wtsapi32.WTSFreeMemory(p_info)
 
     if session_id == 0:
         log.warning(
-            "[CONSOLE] No active user session found (physical or RDP). "
-            "The PowerShell window will open in Session 0 and will NOT be visible."
+            "[CONSOLE] No usable interactive session found. "
+            "The PS1 window will open in Session 0 and will NOT be visible to the user. "
+            "On EC2/headless: connect via RDP to create a session, then retry."
         )
 
     return session_id
@@ -227,18 +244,27 @@ def _spawn_in_user_session(script_path: str) -> int:
     userenv  = ctypes.windll.userenv
 
     session_id = _find_user_session_id()
+    log.info("[CONSOLE] _spawn_in_user_session: target session_id=%d script=%s", session_id, script_path)
 
     hToken = W.HANDLE()
+    log.info("[CONSOLE] Calling WTSQueryUserToken(session=%d) ...", session_id)
     if not wtsapi32.WTSQueryUserToken(session_id, ctypes.byref(hToken)):
         err = kernel32.GetLastError()
         _wts_hints = {
-            5:    "Access Denied - service account needs SeTcbPrivilege",
-            1008: "No user token for session - no interactive user logged in",
+            5:    "Access Denied -- service account needs SeTcbPrivilege (Act as part of OS). "
+                  "Grant it via: secpol.msc -> Local Policies -> User Rights Assignment -> 'Act as part of the operating system'",
+            1008: "No user token for session -- no interactive user logged in to this session. "
+                  "On EC2: ensure an RDP session is active, or use SSM Session Manager.",
+            1314: "Privilege not held -- service account missing SeAssignPrimaryTokenPrivilege.",
         }
         log.warning(
-            "[CONSOLE] WTSQueryUserToken failed (err=%d: %s) -- falling back to Popen (Session 0). "
-            "Window will open in the SERVICE session and will NOT be visible to the logged-in user.",
-            err, _wts_hints.get(err, "unknown error"),
+            "[CONSOLE] WTSQueryUserToken FAILED (err=%d): %s",
+            err, _wts_hints.get(err, f"Win32 error {err} -- see https://learn.microsoft.com/windows/win32/debug/system-error-codes"),
+        )
+        log.warning(
+            "[CONSOLE] FALLBACK: spawning PS1 via Popen in Session 0 (script: %s). "
+            "The window will NOT be visible to the logged-in user on a headless/EC2 machine.",
+            script_path,
         )
         proc = subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script_path],
@@ -287,6 +313,7 @@ def _spawn_in_user_session(script_path: str) -> int:
     NORMAL_PRIORITY_CLASS     = 0x00000020
 
     cmd_line = f'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{script_path}"'
+    log.info("[CONSOLE] Calling CreateProcessAsUserW: session=%d cmd=%s", session_id, cmd_line)
 
     ok = advapi32.CreateProcessAsUserW(
         hToken,
@@ -313,14 +340,16 @@ def _spawn_in_user_session(script_path: str) -> int:
     if not ok:
         err = kernel32.GetLastError()
         _create_hints = {
-            1314: "Required privilege not held (SeAssignPrimaryTokenPrivilege needed)",
+            1314: "SeAssignPrimaryTokenPrivilege not held -- grant via secpol.msc -> Local Policies -> "
+                  "User Rights -> 'Replace a process level token'",
             5:    "Access Denied",
+            6:    "Invalid handle (token may have become stale between WTSQueryUserToken and CreateProcessAsUserW)",
         }
         log.warning(
-            "[CONSOLE] CreateProcessAsUserW failed (err=%d: %s) -- falling back to Popen (Session 0). "
-            "Window will NOT be visible to the logged-in user.",
-            err, _create_hints.get(err, "unknown error"),
+            "[CONSOLE] CreateProcessAsUserW FAILED (err=%d): %s",
+            err, _create_hints.get(err, f"Win32 error {err}"),
         )
+        log.warning("[CONSOLE] FALLBACK: Popen in Session 0 (script: %s) -- window NOT visible to user", script_path)
         proc = subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script_path],
             creationflags=subprocess.CREATE_NEW_CONSOLE,
@@ -328,7 +357,7 @@ def _spawn_in_user_session(script_path: str) -> int:
         log.warning("[CONSOLE] Popen fallback: PID=%d in Session 0 -- console NOT visible to user", proc.pid)
         return proc.pid
 
-    log.info("[CONSOLE] Spawned PowerShell in user session %d, PID=%d", session_id, pid)
+    log.info("[CONSOLE] CreateProcessAsUserW SUCCESS: session=%d PID=%d", session_id, pid)
     return pid
 
 
@@ -505,17 +534,20 @@ async def open_native_console(
         )
         tf.write(ps_script)
         tf.close()
-        log.info("[CONSOLE] PS1 script written to %s (Defender-excluded path)", tf.name)
-
-        console_log = log_path
-        log.info("[CONSOLE] PS1 console log will be written to: %s", console_log)
+        log.info("[CONSOLE] PS1 script written: %s", tf.name)
+        log.info("[CONSOLE] PS1 console log path: %s", log_path)
+        log.info("[CONSOLE] TCP relay port: %d | WS URL: %s", port, ws_url)
         try:
             pid = _spawn_in_user_session(tf.name)
             log.info(
-                "[CONSOLE] PowerShell window spawned: PID=%d relay_port=%d paw=%s hostname=%s",
+                "[CONSOLE] *** SPAWN RESULT: PID=%d relay_port=%d paw=%s hostname=%s ***",
                 pid, port, paw, hostname,
             )
-            log.info("[CONSOLE] To diagnose connection issues check: %s", console_log)
+            log.info(
+                "[CONSOLE] DIAGNOSTIC: check PS1 log at %s on the SERVER machine for TCP/WS errors. "
+                "Agent-side cmd.exe errors are in the agent log.",
+                log_path,
+            )
         except Exception as exc:
             log.error("[CONSOLE] Failed to spawn PowerShell window: %s", exc, exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to spawn console: {exc}")

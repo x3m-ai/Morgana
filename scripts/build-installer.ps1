@@ -188,8 +188,9 @@ if ($ghExe) {
     }
     $tag = "v$ver"
     $installerOut = Join-Path $repoRoot "build\installer\Morgana-Server-Setup.exe"
-    $releaseExists = gh release view $tag --repo x3m-ai/Morgana 2>$null
-    if ($LASTEXITCODE -eq 0) {
+    $releaseExists = $false
+    try { $null = gh release view $tag --repo x3m-ai/Morgana 2>&1; $releaseExists = ($LASTEXITCODE -eq 0) } catch { $releaseExists = $false }
+    if ($releaseExists) {
         Write-Step "Uploading installer to existing GitHub Release $tag"
         gh release upload $tag $installerOut --repo x3m-ai/Morgana --clobber
     } else {
@@ -197,7 +198,7 @@ if ($ghExe) {
         gh release create $tag $installerOut --repo x3m-ai/Morgana --title "Morgana $tag" --notes "See CHANGELOG. Auto-update EXE: https://merlino.x3m.ai/morgana/morgana-server.exe"
     }
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "[SUCCESS] GitHub Release $tag: https://github.com/x3m-ai/Morgana/releases/tag/$tag" -ForegroundColor Green
+        Write-Host "[SUCCESS] GitHub Release ${tag}: https://github.com/x3m-ai/Morgana/releases/tag/${tag}" -ForegroundColor Green
     } else {
         Write-Warning "[WARN] GitHub Release upload failed - upload manually from build\installer\"
     }
