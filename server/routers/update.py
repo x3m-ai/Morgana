@@ -41,7 +41,7 @@ router = APIRouter()
 # Canonical source of truth for latest Morgana version
 # Served directly from the public Morgana GitHub repo (always fresh, no CDN/SPA issues)
 _VERSION_JSON_URL = (
-    "https://raw.githubusercontent.com/x3m-ai/Morgana/main/version.json"
+    "https://raw.githubusercontent.com/x3m-ai/Morgana/master/version.json"
 )
 
 # Background update state
