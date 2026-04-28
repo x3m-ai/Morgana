@@ -203,7 +203,7 @@ Run all commands **one at a time** as **Administrator** in PowerShell.
 ### Step 1 — Stop the service
 
 ```powershell
-Stop-Service Morgana -Force -ErrorAction SilentlyContinue
+Stop-Service Morgana -Force
 ```
 
 ### Step 2 — Remove the service registration (using NSSM)
