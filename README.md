@@ -22,11 +22,11 @@ Together, **Merlino + Morgana** form a complete, integrated Purple Teaming platf
 
 Used together they cover the full Purple Team lifecycle: from threat intelligence and technique selection in Merlino, to controlled adversary simulation execution via Morgana, with live feedback and automated reporting back in Excel. This is **advanced Purple Teaming as it should be** — precise, integrated, and entirely under your control.
 
-Morgana is **not a fork of Caldera**. It is a purpose-built platform designed from the ground up for operational red teamers:
+Morgana is a purpose-built platform designed from the ground up for operational red teamers:
 - Domain model designed around real-world kill chains, not academic research
 - Agents install as native OS services (NT Service on Windows, systemd on Linux) — no dependencies, single binary
 - 6000+ scripts from [Atomic Red Team](https://github.com/redcanaryco/atomic-red-team), fully indexed and searchable by MITRE technique
-- Clean HTTP API consumed directly by Merlino — switch from Caldera to Morgana by changing one URL in settings
+- Clean HTTP API consumed directly by Merlino
 - Dark-theme web UI for standalone use — agents, scripts, chains, campaigns, logs, all in one place
 - In-app auto-update: new versions available as a one-click update from the Admin panel
 
@@ -235,7 +235,7 @@ Morgana exposes the full `/api/v2/merlino/*` surface that Merlino expects:
 | `/api/v2/merlino/ops-graph/problem-details` | GET | Problem drilldown |
 | `/api/v2/merlino/ops-graph/operation-details` | GET | Operation drilldown |
 | `/api/v2/merlino/ops-graph/agent-details` | GET | Agent drilldown |
-| `/api/v2/agents` | GET | Agent list (Caldera-compatible) |
+| `/api/v2/agents` | GET | Agent list |
 
 ---
 
@@ -279,7 +279,7 @@ Morgana and Merlino are two sides of the same coin, built to work together from 
 
 **Morgana** is the open-source execution layer. Once a red team scenario is planned in Merlino, Morgana executes it: it dispatches scripts to agents on target machines, collects results, and streams everything back to Merlino in real time. The loop is closed entirely on your own infrastructure.
 
-They communicate over HTTP only. Neither depends on the other's internals. Switching from Caldera to Morgana requires changing exactly one URL in Merlino's Settings — nothing else changes.
+They communicate over HTTP only. Neither depends on the other's internals.
 
 | | [Merlino](https://merlino.x3m.ai) | Morgana |
 |---|---|---|
