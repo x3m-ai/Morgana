@@ -84,7 +84,7 @@ Atomic Red Team scripts + custom scripts
 
 ### Option A — Windows Installer (recommended)
 
-Download the latest `Morgana-Server-Setup.exe` from the [Camelot releases page](https://github.com/x3m-ai/Camelot/tree/main/morgana/Install) and run it as Administrator.
+Download the latest `Morgana-Server-Setup.exe` from the [Merlino CDN](https://merlino.x3m.ai/morgana/Morgana-Server-Setup.exe) and run it as Administrator.
 
 The installer:
 - Installs the Morgana server as a **Windows NT Service** (auto-starts at boot)
@@ -94,6 +94,70 @@ The installer:
 - Downloads the Atomic Red Team script library (optional, ~300 MB)
 
 After installation, open the web UI at `https://localhost:8888/ui/` and log in with the credentials shown during setup.
+
+> **Windows Defender exclusion (development machines / Red Team ops)**
+> The Atomic Red Team script library (`atomics/`) contains real attack payloads that Defender will delete on sight.
+> If you clone this repository or work with the atomics submodule, add a Defender exclusion for the repo folder:
+> ```powershell
+> Add-MpPreference -ExclusionPath "C:\Users\ninoc\OfficeAddinApps\Morgana"
+> ```
+> Or via **Windows Security → Virus & threat protection → Manage settings → Exclusions**.
+> Without the exclusion, Defender silently deletes EXE/DLL/PS1 files from `atomics/` each time they are restored.
+
+---
+
+### Option A — Linux (manual, one-time setup)
+
+Morgana has no Linux installer yet. Use the manual setup below.
+
+```bash
+# 1. Clone
+git clone --recurse-submodules https://github.com/x3m-ai/Morgana.git
+cd Morgana
+
+# 2. Python venv
+cd server
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cd ..
+
+# 3. Build the agent binary (requires Go 1.22+)
+cd agent
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../build/morgana-agent/morgana-agent ./cmd/agent/
+cd ..
+
+# 4. Start the server (first run generates cert + master key)
+sudo server/.venv/bin/python server/main.py
+```
+
+The master API key is printed on first start and saved to `/var/lib/morgana/data/master.key`.
+
+To run as a **systemd service**:
+
+```bash
+sudo tee /etc/systemd/system/morgana.service > /dev/null <<'EOF'
+[Unit]
+Description=Morgana Red Team Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/morgana/server
+ExecStart=/opt/morgana/server/.venv/bin/python /opt/morgana/server/main.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable morgana
+sudo systemctl start morgana
+```
+
+Web UI: `https://YOUR_SERVER_IP:8888/ui/` (accept the self-signed cert).
 
 ---
 
@@ -285,6 +349,33 @@ After installation the server starts automatically as an NT Service and the UI i
 ---
 
 ## Troubleshooting
+
+### Windows Defender deletes files from `atomics/`
+
+**Symptom:** Files in `atomics/atomics/T*/` (EXE, DLL, PS1) disappear after checkout or `git restore`. VS Code Source Control shows 70+ deleted files.
+
+**Cause:** Windows Defender detects real attack payloads in the Atomic Red Team library and quarantines them silently.
+
+**Fix — add a Defender exclusion for the repo folder:**
+
+```powershell
+Add-MpPreference -ExclusionPath "C:\path\to\Morgana"
+```
+
+Or via **Windows Security → Virus & threat protection → Manage settings → Add or remove exclusions**.
+
+After adding the exclusion, restore the deleted files:
+
+```powershell
+cd C:\path\to\Morgana\atomics
+git restore .
+```
+
+The badge count in VS Code Source Control will reset to 0.
+
+> **Note:** This exclusion is only needed on development/Red Team operator machines where the full source repo is cloned. The production installer does not include the atomics source tree.
+
+---
 
 ### `Remove-Item` fails with "process cannot access the file" during uninstall
 
