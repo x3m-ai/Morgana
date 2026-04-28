@@ -157,7 +157,7 @@ if (Test-Path $merlinoCdn) {
 
     # Read version from config.py
     $configPy = Get-Content (Join-Path $repoRoot "server\config.py") -Raw
-    if ($configPy -match 'version\s*=\s*"([^"]+)"') {
+    if ($configPy -match 'version\s*(?::\s*str\s*)?\s*=\s*"([^"]+)"') {
         $ver = $Matches[1]
     } else {
         $ver = "0.0.0"
@@ -175,5 +175,5 @@ if (Test-Path $merlinoCdn) {
     Write-Host "  server exe: https://merlino.x3m.ai/morgana/morgana-server.exe" -ForegroundColor DarkGray
     Write-Host "  version   : https://merlino.x3m.ai/morgana/version.json" -ForegroundColor DarkGray
 } else {
-    Write-Warning "[WARN] Merlino CDN folder not found ($merlinoCdn) — skipping CDN publish."
+    Write-Warning "[WARN] Merlino CDN folder not found ($merlinoCdn) - skipping CDN publish."
 }
