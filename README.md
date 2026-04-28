@@ -200,6 +200,8 @@ cd C:\path\to\Morgana
 
 Run all commands **one at a time** as **Administrator** in PowerShell.
 
+> **AWS SSM / headless sessions:** GUI windows cannot be displayed. Use the `/SILENT` flag on Step 3 and Step 6 (see notes in each step).
+
 ### Step 1 — Stop the service
 
 ```powershell
@@ -218,6 +220,11 @@ Start-Process "C:\Program Files\Morgana Server\tools\nssm.exe" -ArgumentList "re
 Start-Process "C:\Program Files\Morgana Server\unins000.exe" -Verb RunAs -Wait
 ```
 
+> **On AWS SSM or any headless session** (no desktop): add `/SILENT` to avoid the GUI hanging:
+> ```powershell
+> Start-Process "C:\Program Files\Morgana Server\unins000.exe" -ArgumentList "/SILENT" -Wait
+> ```
+
 ### Step 4 — Remove all data (optional — skip if you want to keep config and DB)
 
 ```powershell
@@ -235,6 +242,11 @@ Invoke-WebRequest -Uri "https://github.com/x3m-ai/Camelot/raw/main/morgana/Insta
 ```powershell
 Start-Process "$env:TEMP\Morgana-Server-Setup.exe" -Verb RunAs -Wait
 ```
+
+> **On AWS SSM or any headless session** (no desktop): add `/SILENT` to avoid the GUI hanging:
+> ```powershell
+> Start-Process "$env:TEMP\Morgana-Server-Setup.exe" -ArgumentList "/SILENT" -Wait
+> ```
 
 After installation the server starts automatically as an NT Service and the UI is available at `https://localhost:8888/ui/`.
 
