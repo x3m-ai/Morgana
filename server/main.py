@@ -153,6 +153,28 @@ async def lifespan(app: FastAPI):
     log.info("[START] Morgana Server v%s", settings.version)
     log.info("[START] Database: %s", settings.db_path)
 
+    # ── Version-change log reset ──────────────────────────────────────────────
+    # When a new version is installed, the log file from the previous version
+    # would otherwise show up as "old logs" on the very first startup. We keep
+    # a version stamp file next to the DB; if it differs from the running
+    # version we rotate (rename) the old log so the UI starts clean.
+    _stamp_file = Path(settings.db_path).parent / "last-version.txt"
+    _log_file   = Path(settings.log_file)
+    try:
+        last_ver = _stamp_file.read_text().strip() if _stamp_file.exists() else ""
+        if last_ver and last_ver != settings.version and _log_file.exists():
+            _archive = _log_file.with_name(f"server-{last_ver}.log")
+            _log_file.rename(_archive)
+            log.info(
+                "[START] Version changed %s -> %s: old log archived to %s",
+                last_ver, settings.version, _archive.name,
+            )
+        # Always write current version stamp
+        _stamp_file.write_text(settings.version)
+    except Exception as _e:
+        log.warning("[START] Version stamp check failed (non-fatal): %s", _e)
+    # ─────────────────────────────────────────────────────────────────────────
+
     # Log master key location / value so admin can configure clients on first run
     from config import _MASTER_KEY_FILE as _mkf
     if not os.getenv("MORGANA_API_KEY", ""):
@@ -267,6 +289,10 @@ app.include_router(deploy_router, tags=["deploy"])
 # Campaigns (sequence of Chains with parallel support)
 from routers.campaigns import router as campaigns_router
 app.include_router(campaigns_router, prefix="/api/v2/campaigns", tags=["campaigns"])
+
+# Auto-update (check latest version, apply in-place update)
+from routers.update import router as update_router
+app.include_router(update_router, prefix="/api/v2/update", tags=["update"])
 
 # Serve web UI
 # When frozen by PyInstaller the files land in sys._MEIPASS, not next to __file__

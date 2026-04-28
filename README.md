@@ -4,25 +4,31 @@
   <img src="ui/assets/morgana-logo.png" alt="Morgana" width="320" />
 </p>
 
-> **Version:** 0.1.0 (Alpha) | **March 2026**
+> **Version:** 0.2.4 | **April 2026** | **License:** AGPL-3.0
 > **Publisher:** X3M.AI Ltd (UK) | **Author:** Nino Crudele
-> **Companion to:** [Merlino Excel Add-in](https://merlino.x3m.ai)
-> **Repo:** `x3m-ai/Morgana` (private)
+> **Companion to:** [Merlino Excel Add-in](https://merlino.x3m.ai) — free, no registration
+> **Community releases:** [x3m-ai/Camelot](https://github.com/x3m-ai/Camelot)
 
 ---
 
 ## What is Morgana?
 
-Morgana is a **Windows-first Purple Team execution platform** built as the native companion to the Merlino Excel Add-in.
+Morgana is a **free, open-source Purple Team execution platform** — the native execution engine designed to work alongside the [Merlino Excel Add-in](https://merlino.x3m.ai).
 
-Where Merlino is the **command and intelligence center** (threat mapping, ATT&CK correlation, reporting), Morgana is the **execution engine**: it deploys agents on target machines, runs red team scripts mapped to MITRE ATT&CK techniques, and reports results back to Merlino in real time.
+Together, **Merlino + Morgana** form a complete, integrated Purple Teaming platform:
 
-Morgana is **not a fork of Caldera**. It is a purpose-built platform with:
-- A domain model designed for operational red teamers, not researchers
-- Agents that install as native OS services (NT Service on Windows, systemd daemon on Linux)
-- Scripts drawn from [Atomic Red Team](https://github.com/redcanaryco/atomic-red-team) (6000+ MITRE-mapped tests)
-- A clean HTTP API that Merlino consumes directly
-- A dark-theme web UI for standalone use
+- **[Merlino](https://merlino.x3m.ai)** is the command and intelligence center — a free Microsoft Excel Add-in for MITRE ATT&CK threat mapping, CTI correlation, detection coverage analysis, and reporting. No registration. No backend. All data stays local.
+- **Morgana** is the execution engine — it deploys agents on target machines, runs red team scripts mapped to MITRE ATT&CK techniques, and streams results back to Merlino in real time.
+
+Used together they cover the full Purple Team lifecycle: from threat intelligence and technique selection in Merlino, to controlled adversary simulation execution via Morgana, with live feedback and automated reporting back in Excel. This is **advanced Purple Teaming as it should be** — precise, integrated, and entirely under your control.
+
+Morgana is **not a fork of Caldera**. It is a purpose-built platform designed from the ground up for operational red teamers:
+- Domain model designed around real-world kill chains, not academic research
+- Agents install as native OS services (NT Service on Windows, systemd on Linux) — no dependencies, single binary
+- 6000+ scripts from [Atomic Red Team](https://github.com/redcanaryco/atomic-red-team), fully indexed and searchable by MITRE technique
+- Clean HTTP API consumed directly by Merlino — switch from Caldera to Morgana by changing one URL in settings
+- Dark-theme web UI for standalone use — agents, scripts, chains, campaigns, logs, all in one place
+- In-app auto-update: new versions available as a one-click update from the Admin panel
 
 ---
 
@@ -74,27 +80,119 @@ Atomic Red Team scripts + custom scripts
 
 ---
 
-## Quick Start
+## Installation
 
-### 1. Start the server
+### Option A — Windows Installer (recommended)
+
+Download the latest `Morgana-Server-Setup.exe` from the [Camelot releases page](https://github.com/x3m-ai/Camelot/tree/main/morgana/Install) and run it as Administrator.
+
+The installer:
+- Installs the Morgana server as a **Windows NT Service** (auto-starts at boot)
+- Generates a self-signed TLS certificate (HTTPS on port 8888)
+- Generates a random master API key stored in `C:\ProgramData\Morgana\data\master.key`
+- Creates a Desktop shortcut to the Morgana web UI
+- Downloads the Atomic Red Team script library (optional, ~300 MB)
+
+After installation, open the web UI at `https://localhost:8888/ui/` and log in with the credentials shown during setup.
+
+---
+
+### Option B — Manual Installation from Source
+
+#### Prerequisites
+
+- Python 3.11 or 3.12
+- Go 1.22+ (for the agent binary only)
+- Git
+
+#### 1. Clone the repository
+
+```bash
+git clone https://github.com/x3m-ai/Morgana.git
+cd Morgana
+```
+
+#### 2. Set up the Python virtual environment
+
 ```bash
 cd server
-pip install -r requirements.txt
-python main.py
-```
-Server starts on `https://localhost:8888`.
+python -m venv .venv
 
-### 2. Install an agent on a Windows target
+# Windows
+.venv\Scripts\pip install -r requirements.txt
+
+# Linux / macOS
+.venv/bin/pip install -r requirements.txt
+```
+
+#### 3. Build the Go agent (Windows)
+
 ```powershell
-# Run on the target machine (as Administrator)
-.\scripts\install-agent-windows.ps1 -ServerUrl "https://192.168.1.10:8888" -Token "YOUR_DEPLOY_TOKEN"
+cd ..\agent
+go build -o ..\build\morgana-agent\morgana-agent.exe .\cmd\agent\
 ```
 
-### 3. Configure Merlino
-In the Merlino Settings taskpane, set **Morgana URL** to `https://localhost:8888` (or the server IP).
+#### 4. Build the Go agent (Linux)
 
-### 4. Synchronize
-In Merlino's **Tests & Operations** taskpane, click **Synchronize Morgana**. Morgana receives the Tests table, queues jobs for agents, and streams results back.
+```bash
+cd agent
+go build -o ../build/morgana-agent/morgana-agent ./cmd/agent/
+```
+
+#### 5. Start the server
+
+```powershell
+# Windows — run as Administrator (generates certs and master key on first run)
+cd server
+.venv\Scripts\python.exe main.py
+```
+
+```bash
+# Linux
+cd server
+.venv/bin/python main.py
+```
+
+Server starts at `https://localhost:8888` (HTTPS) on first run after generating a self-signed certificate.
+
+The master API key is printed in the console on first start and saved to:
+- Windows: `C:\ProgramData\Morgana\data\master.key`
+- Linux: `/var/lib/morgana/data/master.key`
+
+#### 6. Open the web UI
+
+Navigate to `https://localhost:8888/ui/` and accept the self-signed certificate warning.
+
+#### 7. Install an agent on a target machine
+
+```powershell
+# Windows target — run as Administrator
+.\scripts\install-agent-windows.ps1 -ServerUrl "https://YOUR_SERVER_IP:8888" -Token "YOUR_API_KEY"
+```
+
+```bash
+# Linux target
+chmod +x scripts/install-agent-linux.sh
+sudo ./scripts/install-agent-linux.sh --server "https://YOUR_SERVER_IP:8888" --token "YOUR_API_KEY"
+```
+
+#### 8. Connect Merlino
+
+In the Merlino **Settings** taskpane, set:
+- **Morgana URL**: `https://YOUR_SERVER_IP:8888`
+- **API Key**: your master key or a key created in the Morgana Admin panel
+
+---
+
+## Quick Start (process-based, no service — dev/testing only)
+
+```powershell
+# Windows — dev mode, no service installation needed
+cd C:\path\to\Morgana
+.\Morgana.ps1 start 8888 -NoWindow   # start in background
+.\Morgana.ps1 stop
+.\Morgana.ps1 status
+```
 
 ---
 
@@ -143,17 +241,51 @@ Morgana exposes the full `/api/v2/merlino/*` surface that Merlino expects:
 
 ## License
 
-MIT License - see [LICENSE](LICENSE)
+Morgana is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)** — see [LICENSE](LICENSE).
+
+This means:
+- You can use, study, modify, and distribute Morgana freely
+- If you run a modified version as a network service (hosted/SaaS), you must release your modifications under the same license
+- Attribution to X3M.AI Ltd must be preserved
 
 ---
 
-## Relation to Merlino
+## Releases
 
-Morgana is the execution backend. Merlino is the intelligence and command center. They communicate over HTTP only. Neither depends on the other's internal implementation.
+Pre-built Windows installers and binaries are published in the [x3m-ai/Camelot](https://github.com/x3m-ai/Camelot/tree/main/morgana/Install) community repository.
 
-| Merlino | Morgana |
-|---|---|
-| Excel Add-in (TypeScript) | Standalone server + agent (Python + Go) |
-| Threat intelligence, mapping, reporting | Script execution, agent management |
-| CTI / Blue Team / Purple Team analysis | Red Team execution engine |
-| Cloudflare Pages (hosted) | Local / on-premise (your infrastructure) |
+---
+
+## The X3M.AI Purple Team Platform
+
+| | Merlino | Morgana |
+|---|---|---|
+| **Role** | Command & Intelligence | Execution Engine |
+| **Type** | Microsoft Excel Add-in | Server + Agent |
+| **Platform** | Any OS with Excel | Windows / Linux |
+| **License** | Free, no registration | AGPL-3.0 open source |
+| **Website** | [merlino.x3m.ai](https://merlino.x3m.ai) | This repo |
+| **Integration** | Reads/writes Excel tables | HTTP API on localhost:8888 |
+
+Both are built and maintained by [X3M.AI Ltd](https://x3m.ai) (UK). No telemetry, no accounts, no cloud dependency. Your data stays on your infrastructure.
+
+---
+
+## Merlino + Morgana: The Complete Purple Team Platform
+
+Morgana and Merlino are two sides of the same coin, built to work together from day one.
+
+**[Merlino](https://merlino.x3m.ai)** is a free Microsoft Excel Add-in — the intelligence and command layer. It integrates MITRE ATT&CK, CVE/NVD, Exploit-DB, Darktrace, Microsoft Sentinel and Defender, MISP, and multiple AI providers. Purple teamers use it to build threat profiles, map detection coverage, plan attack scenarios, and generate reports — all inside Excel, with zero data leaving the machine.
+
+**Morgana** is the open-source execution layer. Once a red team scenario is planned in Merlino, Morgana executes it: it dispatches scripts to agents on target machines, collects results, and streams everything back to Merlino in real time. The loop is closed entirely on your own infrastructure.
+
+They communicate over HTTP only. Neither depends on the other's internals. Switching from Caldera to Morgana requires changing exactly one URL in Merlino's Settings — nothing else changes.
+
+| | [Merlino](https://merlino.x3m.ai) | Morgana |
+|---|---|---|
+| **Role** | Command, Intelligence & Reporting | Execution Engine |
+| **Type** | Microsoft Excel Add-in | Server + Agent |
+| **License** | Free, no registration | AGPL-3.0 open source |
+| **Tech** | TypeScript + Office.js + React | Python + Go |
+| **Data** | Local (Excel + localStorage) | Local (SQLite on your server) |
+| **Integrations** | MITRE, CVE, Sentinel, AI, MISP... | Atomic Red Team (6000+ scripts) |

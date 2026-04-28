@@ -3820,6 +3820,9 @@ function _campWalkAndModifyParallel(nodes, parallelNodeId, fn) {
     if (activePage && activePage.id === "page-dashboard") refreshDashboard();
   }, REFRESH_INTERVAL);
 
+  // Check for available Morgana update (non-blocking, fire and forget)
+  setTimeout(checkForUpdate, 4000);
+
   // Try to load script count for stat
   apiFetch("/api/v2/scripts?limit=1&count_only=true")
     .then((data) => setVal("stat-scripts-total", data.total || 0))
@@ -3939,4 +3942,116 @@ async function _deleteApiKey(id, name) {
   } catch (err) {
     alert("[ERROR] Could not revoke key: " + err.message);
   }
+}
+
+// ─── Auto-Update ─────────────────────────────────────────────────────────────
+
+let _updateDismissed = false;
+let _updatePollingInterval = null;
+
+async function checkForUpdate() {
+  if (_updateDismissed) return;
+  try {
+    const data = await apiFetch("/api/v2/update/check");
+    if (data && data.update_available) {
+      const banner = document.getElementById("update-banner");
+      const txt    = document.getElementById("update-banner-text");
+      if (!banner || !txt) return;
+      const notes = data.release_notes ? ` — ${escHtml(data.release_notes)}` : "";
+      txt.innerHTML =
+        `New version available: <strong style="color:#90cdf4">v${escHtml(data.latest_version)}</strong>` +
+        ` (current: v${escHtml(data.current_version)})${notes}`;
+      banner.style.display = "flex";
+    }
+  } catch (_e) {
+    // Network error or server offline — silently ignore
+  }
+}
+
+async function applyUpdate() {
+  const banner = document.getElementById("update-banner");
+  const progressBanner = document.getElementById("update-progress-banner");
+  const progressTxt  = document.getElementById("update-progress-text");
+  const progressPct  = document.getElementById("update-progress-pct");
+
+  // Confirm with user
+  let meta = null;
+  try {
+    meta = await apiFetch("/api/v2/update/check");
+  } catch (_e) {}
+  const latestVer  = meta && meta.latest_version  ? `v${meta.latest_version}`  : "latest";
+  const currentVer = meta && meta.current_version ? `v${meta.current_version}` : "current";
+  const notes = meta && meta.release_notes ? `\n\nRelease notes: ${meta.release_notes}` : "";
+  if (!confirm(
+    `This will update Morgana from ${currentVer} to ${latestVer} and restart the service automatically.\n\nYour database and configuration will be preserved.${notes}\n\nProceed?`
+  )) return;
+
+  // Hide available banner, show progress banner
+  if (banner)         banner.style.display = "none";
+  if (progressBanner) progressBanner.style.display = "flex";
+  if (progressTxt)    progressTxt.textContent = "Starting update...";
+  if (progressPct)    progressPct.textContent = "0%";
+
+  // Disable the update button to prevent double-click
+  const applyBtn = document.getElementById("update-apply-btn");
+  if (applyBtn) applyBtn.disabled = true;
+
+  // Start the update on the server
+  try {
+    await apiFetch("/api/v2/update/apply", { method: "POST" });
+  } catch (err) {
+    if (progressTxt) progressTxt.textContent = "[ERROR] " + err.message;
+    if (applyBtn) applyBtn.disabled = false;
+    return;
+  }
+
+  // Poll update status until server restarts
+  if (_updatePollingInterval) clearInterval(_updatePollingInterval);
+  let pollAttempts = 0;
+  const MAX_POLLS = 120; // 2 minutes max
+
+  _updatePollingInterval = setInterval(async () => {
+    pollAttempts++;
+    if (pollAttempts > MAX_POLLS) {
+      clearInterval(_updatePollingInterval);
+      if (progressTxt) progressTxt.textContent = "[ERROR] Update timed out. Check server logs.";
+      return;
+    }
+
+    // Try polling the status endpoint — will fail while server is down
+    try {
+      const status = await apiFetch("/api/v2/update/status");
+      if (progressTxt) progressTxt.textContent = status.message || "Updating...";
+      if (progressPct) progressPct.textContent = (status.percent || 0) + "%";
+
+      if (status.phase === "error") {
+        clearInterval(_updatePollingInterval);
+        if (progressTxt) progressTxt.textContent = "[ERROR] " + (status.error || "Update failed");
+        return;
+      }
+
+      if (status.phase === "restarting" || !status.running) {
+        // Server is about to go down — switch to health-poll mode
+        if (progressTxt) progressTxt.textContent = "Server restarting... waiting for it to come back online";
+        if (progressPct) progressPct.textContent = "90%";
+      }
+    } catch (_e) {
+      // Server is down (restarting) — this is expected
+      if (progressTxt) progressTxt.textContent = "Server restarting... waiting for it to come back online";
+      if (progressPct) progressPct.textContent = "95%";
+
+      // Try the health endpoint to detect when server is back up
+      try {
+        const hResp = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(3000) });
+        if (hResp.ok) {
+          clearInterval(_updatePollingInterval);
+          if (progressPct) progressPct.textContent = "100%";
+          if (progressTxt) progressTxt.textContent = "[SUCCESS] Update complete. Reloading...";
+          setTimeout(() => window.location.reload(), 1500);
+        }
+      } catch (_he) {
+        // Still restarting — keep polling
+      }
+    }
+  }, 1000);
 }
