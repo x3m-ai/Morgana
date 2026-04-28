@@ -4,7 +4,7 @@
   <img src="ui/assets/morgana-logo.png" alt="Morgana" width="320" />
 </p>
 
-> **Version:** 0.2.4 | **April 2026** | **License:** AGPL-3.0
+> **Version:** 0.2.5 | **April 2026** | **License:** AGPL-3.0
 > **Publisher:** X3M.AI Ltd (UK) | **Author:** Nino Crudele
 > **Companion to:** [Merlino Excel Add-in](https://merlino.x3m.ai) — free, no registration
 > **Community releases:** [x3m-ai/Camelot](https://github.com/x3m-ai/Camelot)
@@ -193,6 +193,45 @@ cd C:\path\to\Morgana
 .\Morgana.ps1 stop
 .\Morgana.ps1 status
 ```
+
+---
+
+## Uninstall / Fresh Reinstall
+
+Run all commands as **Administrator** in PowerShell.
+
+### Step 1 — Stop and remove the service
+
+```powershell
+Stop-Service Morgana -Force -ErrorAction SilentlyContinue
+& "C:\Program Files\Morgana Server\tools\nssm.exe" remove Morgana confirm
+```
+
+### Step 2 — Run the Inno Setup uninstaller
+
+```powershell
+Start-Process "C:\Program Files\Morgana Server\unins000.exe" -ArgumentList "/VERYSILENT" -Verb RunAs -Wait
+```
+
+### Step 3 — Remove all data (optional — skip to keep config and DB)
+
+```powershell
+Remove-Item "C:\ProgramData\Morgana" -Recurse -Force -ErrorAction SilentlyContinue
+```
+
+### Step 4 — Download and install the latest version
+
+```powershell
+Invoke-WebRequest `
+    -Uri "https://github.com/x3m-ai/Camelot/raw/main/morgana/Install/Morgana-Server-Setup.exe" `
+    -OutFile "$env:TEMP\Morgana-Server-Setup.exe"
+
+Start-Process "$env:TEMP\Morgana-Server-Setup.exe" -ArgumentList "/VERYSILENT" -Verb RunAs -Wait
+```
+
+After installation the server starts automatically as an NT Service and the UI is available at `https://localhost:8888/ui/`.
+
+> **Note:** `Morgana.ps1` is a developer utility included only in the source repository (`x3m-ai/Morgana`). It is not part of the installed product. End users manage the server exclusively via the steps above or from the Windows Services panel.
 
 ---
 

@@ -1,7 +1,7 @@
 # Morgana - Agent Project Guide
 
-> **Version:** 0.2.4 | **April 2026** | **Publisher:** X3M.AI Ltd (UK) | **Author:** Nino Crudele
-> **Repo:** `x3m-ai/Morgana` (private) | **Community releases:** `x3m-ai/Camelot` (public)
+> **Version:** 0.2.5 | **April 2026** | **Publisher:** X3M.AI Ltd (UK) | **Author:** Nino Crudele
+> **Repo:** `x3m-ai/Morgana` (public) | **Community releases:** `x3m-ai/Camelot` (public)
 
 ---
 
@@ -13,7 +13,7 @@ All three projects are open simultaneously in the same VS Code window:
 | Folder | Repo | copilot-instructions | Role |
 |--------|------|----------------------|------|
 | `Merlino/` | `x3m-ai/Merlino` (private) | `Merlino/.github/copilot-instructions.md` | Excel Add-in — command & intelligence layer |
-| `Morgana/` | `x3m-ai/Morgana` (private) | `Morgana/.github/copilot-instructions.md` | Red Team Server + Agent — execution layer |
+| `Morgana/` | `x3m-ai/Morgana` (public) | `Morgana/.github/copilot-instructions.md` | Red Team Server + Agent — execution layer |
 | `Camelot/` | `x3m-ai/Camelot` (public) | `Camelot/.github/copilot-instructions.md` | Community releases, installers, templates, labs |
 
 All three `copilot-instructions.md` files are loaded simultaneously by Copilot when the workspace is open.
